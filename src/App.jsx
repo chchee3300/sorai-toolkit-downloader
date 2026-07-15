@@ -19,8 +19,16 @@ function App() {
     fetching,
     fetchError,
     fetchMetadata,
-    selectedFormatId,
-    setSelectedFormatId,
+    selectedVideoFormatId,
+    setSelectedVideoFormatId,
+    selectedAudioFormatId,
+    setSelectedAudioFormatId,
+    includeVideo,
+    includeAudio,
+    toggleIncludeVideo,
+    toggleIncludeAudio,
+    autoMerge,
+    setAutoMerge,
     outputPath,
     browseForOutputFolder,
     downloading,
@@ -47,8 +55,16 @@ function App() {
           {metadata ? (
             <DownloadPanel
               metadata={metadata}
-              selectedFormatId={selectedFormatId}
-              setSelectedFormatId={setSelectedFormatId}
+              selectedVideoFormatId={selectedVideoFormatId}
+              setSelectedVideoFormatId={setSelectedVideoFormatId}
+              selectedAudioFormatId={selectedAudioFormatId}
+              setSelectedAudioFormatId={setSelectedAudioFormatId}
+              includeVideo={includeVideo}
+              includeAudio={includeAudio}
+              toggleIncludeVideo={toggleIncludeVideo}
+              toggleIncludeAudio={toggleIncludeAudio}
+              autoMerge={autoMerge}
+              setAutoMerge={setAutoMerge}
               outputPath={outputPath}
               onBrowseOutput={browseForOutputFolder}
               downloading={downloading}

@@ -13,24 +13,40 @@ export function buildMetadataCommand({ ytdlpPath, url }) {
   return `"${ytdlpPath}" -j --no-playlist "${url}"`
 }
 
+// Storyboards (vcodec+acodec both "none") and mhtml containers are yt-dlp
+// housekeeping entries, not real download candidates. webm is excluded
+// site-wide per product decision (avoids a third container family showing
+// up across the two pickers). Pre-muxed combined formats (both vcodec and
+// acodec real) are excluded too -- the two dropdowns only ever offer
+// separate streams, since the UI always builds its own video+audio selector.
+const isStoryboard = (f) => (f.vcodec === 'none' && f.acodec === 'none') || f.ext === 'mhtml'
+const isWebm = (f) => f.ext === 'webm'
+const isVideoOnly = (f) => f.vcodec !== 'none' && f.acodec === 'none'
+const isAudioOnly = (f) => f.acodec !== 'none' && f.vcodec === 'none'
+
 export function parseMetadataJson(text) {
   const data = JSON.parse(text.trim())
-  const formats = (data.formats || [])
+  const mapped = (data.formats || [])
     .filter((f) => f.format_id)
     .map((f) => ({
       formatId: f.format_id,
       ext: f.ext || '',
-      resolution: f.resolution || (f.vcodec === 'none' ? 'audio only' : ''),
-      vcodec: f.vcodec || '',
-      acodec: f.acodec || '',
+      height: typeof f.height === 'number' ? f.height : null,
+      abr: typeof f.abr === 'number' ? f.abr : (typeof f.tbr === 'number' ? f.tbr : null),
+      vcodec: f.vcodec || 'none',
+      acodec: f.acodec || 'none',
       filesize: f.filesize || f.filesize_approx || null,
-      note: f.format_note || '',
     }))
+
+  const videoFormats = mapped.filter((f) => isVideoOnly(f) && !isStoryboard(f) && !isWebm(f))
+  const audioFormats = mapped.filter((f) => isAudioOnly(f) && !isStoryboard(f) && !isWebm(f))
+
   return {
     title: data.title || 'Untitled',
     thumbnail: data.thumbnail || null,
     duration: typeof data.duration === 'number' ? data.duration : null,
-    formats,
+    videoFormats,
+    audioFormats,
   }
 }
 
@@ -57,30 +73,56 @@ export function formatDuration(seconds) {
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
 }
 
-// Label shown in the format picker: id · container · resolution/kind · size.
-export function formatOptionLabel(f) {
-  const isAudioOnly = f.vcodec === 'none' && f.acodec !== 'none'
-  const isVideoOnly = f.acodec === 'none' && f.vcodec !== 'none'
-  const kind = isAudioOnly ? 'audio only' : isVideoOnly ? 'video only (needs merge)' : 'video+audio'
-  const size = formatBytes(f.filesize)
-  return [f.formatId, f.ext, f.resolution, kind, size].filter(Boolean).join(' · ')
+// Quality labels avoid format codes entirely -- just what a user actually
+// cares about: resolution tier, container, size. 2K/4K/8K match the common
+// consumer naming for 1440p/2160p/4320p rather than the technical DCI usage.
+function videoQualityLabel(height) {
+  if (height == null) return 'Unknown'
+  if (height >= 4320) return '8K'
+  if (height >= 2160) return '4K'
+  if (height >= 1440) return '2K'
+  return `${height}p`
 }
 
-// yt-dlp lists formats worst-to-best; the last entry is its own idea of the
-// best available for this format list, so default the picker to it.
-export function defaultFormatId(formats) {
-  return formats.length ? formats[formats.length - 1].formatId : ''
+export function videoFormatOptionLabel(f) {
+  return [videoQualityLabel(f.height), f.ext, formatBytes(f.filesize)].filter(Boolean).join(' · ')
 }
 
-// A video-only format_id passed alone to `-f` downloads silent video --
-// yt-dlp only merges audio in when the selector itself asks for it (e.g.
-// "137+140"). Picking a video-only entry in the UI should still produce a
-// normal video-with-audio file, so pair it with yt-dlp's own "bestaudio"
-// selector here -- this is what actually exercises --ffmpeg-location's
-// merge path, not just a plain single-stream download.
-export function resolveFormatSelector(format) {
-  const isVideoOnly = format.acodec === 'none' && format.vcodec !== 'none'
-  return isVideoOnly ? `${format.formatId}+bestaudio` : format.formatId
+export function audioFormatOptionLabel(f) {
+  const kbps = f.abr != null ? `${Math.round(f.abr)} kbps` : ''
+  return [kbps, f.ext, formatBytes(f.filesize)].filter(Boolean).join(' · ')
+}
+
+// Best-quality default: sort explicitly by the numeric quality field rather
+// than trusting yt-dlp's implicit worst-to-best JSON ordering, since that
+// ordering is undocumented and we already have the numeric fields on hand.
+// filesize is a tiebreaker proxy for "less compressed" at the same tier.
+export function bestVideoFormatId(videoFormats) {
+  if (!videoFormats.length) return ''
+  const sorted = [...videoFormats].sort(
+    (a, b) => (b.height || 0) - (a.height || 0) || (b.filesize || 0) - (a.filesize || 0),
+  )
+  return sorted[0].formatId
+}
+
+export function bestAudioFormatId(audioFormats) {
+  if (!audioFormats.length) return ''
+  const sorted = [...audioFormats].sort(
+    (a, b) => (b.abr || 0) - (a.abr || 0) || (b.filesize || 0) - (a.filesize || 0),
+  )
+  return sorted[0].formatId
+}
+
+// Builds the yt-dlp -f selector from independent video/audio picks. "+"
+// merges the two streams (yt-dlp shells out to --ffmpeg-location's ffmpeg
+// to mux them); "," downloads both as separate files with no merge step.
+export function buildFormatSelector({ includeVideo, includeAudio, videoFormatId, audioFormatId, autoMerge }) {
+  if (includeVideo && includeAudio) {
+    return autoMerge ? `${videoFormatId}+${audioFormatId}` : `${videoFormatId},${audioFormatId}`
+  }
+  if (includeVideo) return videoFormatId
+  if (includeAudio) return audioFormatId
+  return ''
 }
 
 const PROGRESS_PREFIX = 'DLPROGRESS|'
@@ -110,9 +152,28 @@ export function parseDownloadProgress(chunk) {
 // --ffmpeg-location accepts either the ffmpeg binary path itself or its
 // containing directory -- the binary path (from platform.js's
 // ffmpegPath()) works directly, no need to strip it down to a directory.
-export function buildDownloadCommand({ ytdlpPath, ffmpegPath, url, formatId, outputDir }) {
-  return (
-    `"${ytdlpPath}" -f "${formatId}" --no-playlist --ffmpeg-location "${ffmpegPath}" ` +
-    `-P "${outputDir}" --newline --no-colors --progress-template "${buildProgressTemplateArg()}" "${url}"`
-  )
+//
+// mergeToMp4 forces the merged container to mp4 (yt-dlp's default merge
+// container otherwise depends on the source formats and often lands on
+// mkv). noMergeSelector marks the "v,a" comma-selector case: yt-dlp
+// downloads both streams as separate files with no ffmpeg step, so an
+// explicit -o template embeds the format id in each filename -- otherwise
+// two same-titled outputs (e.g. same ext family) could collide, and even
+// without collision the user would otherwise have no way to tell which
+// file is which.
+export function buildDownloadCommand({ ytdlpPath, ffmpegPath, url, formatSelector, outputDir, mergeToMp4, noMergeSelector }) {
+  const parts = [
+    `"${ytdlpPath}"`,
+    `-f "${formatSelector}"`,
+    '--no-playlist',
+    `--ffmpeg-location "${ffmpegPath}"`,
+    mergeToMp4 ? '--merge-output-format mp4' : null,
+    `-P "${outputDir}"`,
+    noMergeSelector ? `-o "%(title)s [%(format_id)s].%(ext)s"` : null,
+    '--newline',
+    '--no-colors',
+    `--progress-template "${buildProgressTemplateArg()}"`,
+    `"${url}"`,
+  ]
+  return parts.filter(Boolean).join(' ')
 }

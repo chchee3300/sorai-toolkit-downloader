@@ -4,8 +4,9 @@ import {
   buildDownloadCommand,
   parseMetadataJson,
   parseDownloadProgress,
-  defaultFormatId,
-  resolveFormatSelector,
+  bestVideoFormatId,
+  bestAudioFormatId,
+  buildFormatSelector,
 } from '../lib/ytdlp.js'
 
 // Ported from sorai-toolkit-converter's useExecute.js's runCommandWithLogs --
@@ -46,7 +47,11 @@ export function useDownloader() {
   const [metadata, setMetadata] = useState(null)
   const [fetching, setFetching] = useState(false)
   const [fetchError, setFetchError] = useState('')
-  const [selectedFormatId, setSelectedFormatId] = useState('')
+  const [selectedVideoFormatId, setSelectedVideoFormatId] = useState('')
+  const [selectedAudioFormatId, setSelectedAudioFormatId] = useState('')
+  const [includeVideo, setIncludeVideo] = useState(true)
+  const [includeAudio, setIncludeAudio] = useState(true)
+  const [autoMerge, setAutoMerge] = useState(true)
   const [outputPath, setOutputPath] = useState('')
   const [downloading, setDownloading] = useState(false)
   const [progressPercent, setProgressPercent] = useState(0)
@@ -76,7 +81,14 @@ export function useDownloader() {
       }
       const meta = parseMetadataJson(res.stdOut)
       setMetadata(meta)
-      setSelectedFormatId(defaultFormatId(meta.formats))
+      setSelectedVideoFormatId(bestVideoFormatId(meta.videoFormats))
+      setSelectedAudioFormatId(bestAudioFormatId(meta.audioFormats))
+      // Force-disable a stream type this source doesn't have at all (e.g. an
+      // audio-only source) -- the corresponding checkbox stays locked via
+      // DownloadPanel's `!available` disabled condition.
+      setIncludeVideo(meta.videoFormats.length > 0)
+      setIncludeAudio(meta.audioFormats.length > 0)
+      setAutoMerge(meta.videoFormats.length > 0 && meta.audioFormats.length > 0)
       setStatus({ text: 'Ready', state: 'ready' })
     } catch (e) {
       setFetchError(e.message || String(e))
@@ -85,6 +97,18 @@ export function useDownloader() {
       setFetching(false)
     }
   }, [url])
+
+  // Defensive layer behind DownloadPanel's `disabled` attribute on each
+  // checkbox: refuses to flip a stream off if the other is already off, so
+  // "both unchecked" can't happen even if a future caller bypasses the UI
+  // guard.
+  const toggleIncludeVideo = useCallback(() => {
+    setIncludeVideo((prev) => (prev && !includeAudio ? prev : !prev))
+  }, [includeAudio])
+
+  const toggleIncludeAudio = useCallback(() => {
+    setIncludeAudio((prev) => (prev && !includeVideo ? prev : !prev))
+  }, [includeVideo])
 
   const browseForOutputFolder = useCallback(async () => {
     const entry = await window.Neutralino.os.showFolderDialog('Select Download Folder')
@@ -101,15 +125,26 @@ export function useDownloader() {
   }, [downloading])
 
   const startDownload = useCallback(async () => {
-    if (!metadata || !selectedFormatId || !outputPath) return
+    if (!metadata || !outputPath) return
+    if (!includeVideo && !includeAudio) return
+    if (includeVideo && !selectedVideoFormatId) return
+    if (includeAudio && !selectedAudioFormatId) return
 
     setDownloading(true)
     setProgressPercent(0)
     setProgressText('Starting…')
     setStatus({ text: 'Downloading…', state: 'busy' })
 
-    const selectedFormat = metadata.formats.find((f) => f.formatId === selectedFormatId)
-    const formatSelector = selectedFormat ? resolveFormatSelector(selectedFormat) : selectedFormatId
+    const formatSelector = buildFormatSelector({
+      includeVideo,
+      includeAudio,
+      videoFormatId: selectedVideoFormatId,
+      audioFormatId: selectedAudioFormatId,
+      autoMerge,
+    })
+    const bothIncluded = includeVideo && includeAudio
+    const mergeToMp4 = bothIncluded && autoMerge
+    const noMergeSelector = bothIncluded && !autoMerge
 
     const platform = window.EstellaLib.platform
     const binPath = platform.resolveBinPath()
@@ -117,8 +152,10 @@ export function useDownloader() {
       ytdlpPath: platform.ytdlpPath(binPath),
       ffmpegPath: platform.ffmpegPath(binPath),
       url: url.trim(),
-      formatId: formatSelector,
+      formatSelector,
       outputDir: outputPath,
+      mergeToMp4,
+      noMergeSelector,
     })
 
     try {
@@ -154,7 +191,7 @@ export function useDownloader() {
     cancelRequestedRef.current = false
     spawnedIdRef.current = null
     setDownloading(false)
-  }, [metadata, selectedFormatId, outputPath, url])
+  }, [metadata, includeVideo, includeAudio, selectedVideoFormatId, selectedAudioFormatId, autoMerge, outputPath, url])
 
   return {
     url,
@@ -163,8 +200,16 @@ export function useDownloader() {
     fetching,
     fetchError,
     fetchMetadata,
-    selectedFormatId,
-    setSelectedFormatId,
+    selectedVideoFormatId,
+    setSelectedVideoFormatId,
+    selectedAudioFormatId,
+    setSelectedAudioFormatId,
+    includeVideo,
+    includeAudio,
+    toggleIncludeVideo,
+    toggleIncludeAudio,
+    autoMerge,
+    setAutoMerge,
     outputPath,
     browseForOutputFolder,
     downloading,

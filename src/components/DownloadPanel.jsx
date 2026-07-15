@@ -1,14 +1,23 @@
 import GlassSelect from './GlassSelect.jsx'
-import { formatOptionLabel } from '../lib/ytdlp.js'
+import { videoFormatOptionLabel, audioFormatOptionLabel } from '../lib/ytdlp.js'
 
-// Right column: format picker, output folder, and the download/cancel
-// button -- mirrors sorai-toolkit-converter's SettingsPanel.jsx structure
-// (settings-block / panel-divider / execute-row), shown once metadata has
-// been fetched (see App.jsx's metadata ? DownloadPanel : DownloadIntro swap).
+// Right column: independent video/audio quality pickers, output folder, and
+// the download/cancel button -- mirrors sorai-toolkit-converter's
+// SettingsPanel.jsx structure (settings-block / panel-divider / execute-row),
+// shown once metadata has been fetched (see App.jsx's metadata ?
+// DownloadPanel : DownloadIntro swap).
 export default function DownloadPanel({
   metadata,
-  selectedFormatId,
-  setSelectedFormatId,
+  selectedVideoFormatId,
+  setSelectedVideoFormatId,
+  selectedAudioFormatId,
+  setSelectedAudioFormatId,
+  includeVideo,
+  includeAudio,
+  toggleIncludeVideo,
+  toggleIncludeAudio,
+  autoMerge,
+  setAutoMerge,
   outputPath,
   onBrowseOutput,
   downloading,
@@ -17,25 +26,86 @@ export default function DownloadPanel({
   onStart,
   onCancel,
 }) {
+  const videoAvailable = metadata.videoFormats.length > 0
+  const audioAvailable = metadata.audioFormats.length > 0
+  // Disabling the currently-checked box when the other is already unchecked
+  // is what enforces "at least one stream stays selected" -- unchecking the
+  // last remaining box is simply not possible.
+  const videoCheckboxDisabled = downloading || !videoAvailable || (includeVideo && !includeAudio)
+  const audioCheckboxDisabled = downloading || !audioAvailable || (includeAudio && !includeVideo)
+  const autoMergeDisabled = downloading || !(includeVideo && includeAudio)
+
   return (
     <section className="panel" id="download-settings">
       <div className="settings-block">
         <p className="settings-subtitle">Format</p>
+
         <div className="field">
-          <label className="field-label" htmlFor="format-select">Quality / format</label>
+          <div className="field-label-row">
+            <label className="field-label" htmlFor="video-format-select">Video quality</label>
+            <label className="toggle-check">
+              <input
+                type="checkbox"
+                id="include-video-checkbox"
+                checked={includeVideo}
+                disabled={videoCheckboxDisabled}
+                onChange={toggleIncludeVideo}
+              />
+              Include video
+            </label>
+          </div>
           <GlassSelect
-            id="format-select"
-            value={selectedFormatId}
-            onChange={(e) => setSelectedFormatId(e.target.value)}
-            disabled={downloading}
+            id="video-format-select"
+            value={selectedVideoFormatId}
+            onChange={(e) => setSelectedVideoFormatId(e.target.value)}
+            disabled={downloading || !includeVideo || !videoAvailable}
           >
-            {metadata.formats.map((f) => (
+            {metadata.videoFormats.map((f) => (
               <option key={f.formatId} value={f.formatId}>
-                {formatOptionLabel(f)}
+                {videoFormatOptionLabel(f)}
               </option>
             ))}
           </GlassSelect>
         </div>
+
+        <div className="field">
+          <div className="field-label-row">
+            <label className="field-label" htmlFor="audio-format-select">Audio quality</label>
+            <label className="toggle-check">
+              <input
+                type="checkbox"
+                id="include-audio-checkbox"
+                checked={includeAudio}
+                disabled={audioCheckboxDisabled}
+                onChange={toggleIncludeAudio}
+              />
+              Include audio
+            </label>
+          </div>
+          <GlassSelect
+            id="audio-format-select"
+            value={selectedAudioFormatId}
+            onChange={(e) => setSelectedAudioFormatId(e.target.value)}
+            disabled={downloading || !includeAudio || !audioAvailable}
+          >
+            {metadata.audioFormats.map((f) => (
+              <option key={f.formatId} value={f.formatId}>
+                {audioFormatOptionLabel(f)}
+              </option>
+            ))}
+          </GlassSelect>
+        </div>
+
+        <label className="toggle-check">
+          <input
+            type="checkbox"
+            id="auto-merge-checkbox"
+            checked={autoMerge}
+            disabled={autoMergeDisabled}
+            onChange={(e) => setAutoMerge(e.target.checked)}
+          />
+          Merge into single MP4
+        </label>
       </div>
 
       <div className="panel-divider"></div>
@@ -72,7 +142,7 @@ export default function DownloadPanel({
           <button
             className="btn btn-primary btn-execute"
             id="btn-download"
-            disabled={!outputPath}
+            disabled={!outputPath || (!includeVideo && !includeAudio)}
             onClick={onStart}
           >
             <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 2.5l10 5.5-10 5.5V2.5z" /></svg>
