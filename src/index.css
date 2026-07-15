@@ -1,0 +1,12 @@
+/* Reuse the shared glassmorphism stylesheet verbatim (same file the hub and
+   sorai-toolkit-converter both load) -- this repo's own components use the
+   same shared classNames (.panel, .btn, .input, etc.), not bespoke styles,
+   so there is one visual language across every tool. Only needed for this
+   repo's own standalone dev harness; DownloaderApp itself (src/index.js)
+   does not import this -- the hub already loads the identical stylesheet
+   at its own top level, see sorai-toolkit-converter's index.css for the
+   same reasoning. Must precede "tailwindcss" -- Tailwind v4's import
+   expands into @layer rules, and CSS requires @import to precede all
+   non-import/@layer-statement rules. */
+@import url("../resources/styles.css");
+@import "tailwindcss";
