@@ -582,6 +582,17 @@ body.drag-active::after {
 .queue-item-state--done { color: var(--success); }
 .queue-item-state--error { color: var(--danger); }
 
+/* Right column (DownloadPanel.jsx/DownloadIntro.jsx) -- same fix as
+   Converter's #settings-section/#tool-intro: without min-height:0 +
+   overflow-y:auto, a grid item stretched to match the left column's height
+   just clips its own overflow (.panel's base overflow:hidden) with no way
+   to reach content past the visible area, instead of scrolling to it. */
+#download-settings,
+#download-intro {
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* ════════════════════════════════════════════════════════════
    SETTINGS PANEL
    ════════════════════════════════════════════════════════════ */
