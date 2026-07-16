@@ -1,4 +1,5 @@
 import UrlPanel from './components/UrlPanel.jsx'
+import QueueList from './components/QueueList.jsx'
 import DownloadIntro from './components/DownloadIntro.jsx'
 import DownloadPanel from './components/DownloadPanel.jsx'
 import StatusBar from './components/StatusBar.jsx'
@@ -13,64 +14,54 @@ import { useDownloader } from './hooks/useDownloader.js'
 // surrounding chrome.
 function App() {
   const {
+    items,
+    selectedItemId,
+    selectItem,
     url,
     setUrl,
-    metadata,
-    fetching,
-    fetchError,
-    fetchMetadata,
-    selectedVideoFormatId,
-    setSelectedVideoFormatId,
-    selectedAudioFormatId,
-    setSelectedAudioFormatId,
-    includeVideo,
-    includeAudio,
+    addError,
+    addAndFetch,
+    updateItem,
     toggleIncludeVideo,
     toggleIncludeAudio,
-    autoMerge,
-    setAutoMerge,
+    removeItem,
     outputPath,
     browseForOutputFolder,
-    downloading,
-    progressPercent,
-    progressText,
-    startDownload,
+    queueRunning,
+    startQueue,
     cancel,
     status,
   } = useDownloader()
+
+  // Falls back to the first remaining item if the previously-selected one
+  // was removed -- no extra state to keep in sync, just re-derive on render.
+  const selectedItem = items.find((i) => i.id === selectedItemId) || items[0] || null
 
   return (
     <>
       <main className="main" id="main-content">
         <div className="main-columns">
-          <UrlPanel
-            url={url}
-            setUrl={setUrl}
-            fetching={fetching}
-            fetchError={fetchError}
-            onFetch={fetchMetadata}
-            metadata={metadata}
-          />
+          <section className="panel panel--ghost" id="url-panel">
+            <UrlPanel url={url} setUrl={setUrl} addError={addError} onAdd={addAndFetch} />
+            <QueueList
+              items={items}
+              selectedItemId={selectedItem?.id ?? null}
+              onSelect={selectItem}
+              onRemove={removeItem}
+            />
+          </section>
 
-          {metadata ? (
+          {selectedItem ? (
             <DownloadPanel
-              metadata={metadata}
-              selectedVideoFormatId={selectedVideoFormatId}
-              setSelectedVideoFormatId={setSelectedVideoFormatId}
-              selectedAudioFormatId={selectedAudioFormatId}
-              setSelectedAudioFormatId={setSelectedAudioFormatId}
-              includeVideo={includeVideo}
-              includeAudio={includeAudio}
-              toggleIncludeVideo={toggleIncludeVideo}
-              toggleIncludeAudio={toggleIncludeAudio}
-              autoMerge={autoMerge}
-              setAutoMerge={setAutoMerge}
+              item={selectedItem}
+              onUpdateItem={(patch) => updateItem(selectedItem.id, patch)}
+              onToggleIncludeVideo={() => toggleIncludeVideo(selectedItem.id)}
+              onToggleIncludeAudio={() => toggleIncludeAudio(selectedItem.id)}
               outputPath={outputPath}
               onBrowseOutput={browseForOutputFolder}
-              downloading={downloading}
-              progressPercent={progressPercent}
-              progressText={progressText}
-              onStart={startDownload}
+              queueRunning={queueRunning}
+              itemCount={items.length}
+              onStart={startQueue}
               onCancel={cancel}
             />
           ) : (

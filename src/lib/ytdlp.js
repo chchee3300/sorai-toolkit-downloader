@@ -45,6 +45,7 @@ export function parseMetadataJson(text) {
     title: data.title || 'Untitled',
     thumbnail: data.thumbnail || null,
     duration: typeof data.duration === 'number' ? data.duration : null,
+    channel: data.channel || data.uploader || null,
     videoFormats,
     audioFormats,
   }

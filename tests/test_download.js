@@ -108,14 +108,24 @@ async function main() {
     await page.click('#btn-fetch');
     // yt-dlp's YouTube extraction time varies a fair bit run-to-run
     // (signature/format resolution retries), so give this more headroom
-    // than a typical UI wait.
-    await page.waitForSelector('#metadata-title', { timeout: 60000 });
-    const title = await page.$eval('#metadata-title', (el) => el.textContent);
+    // than a typical UI wait. Metadata now lands on the queue row (added +
+    // auto-selected by addAndFetch), not a standalone #metadata-* block --
+    // wait on the format selects populating, which only happens once this
+    // item's fetch resolves and it's the selected item shown in the right
+    // panel. waitForFunction, not waitForSelector -- the native <select> is
+    // display:none by design (GlassSelect replaces it with a LiquidSelect
+    // overlay), so a visibility-based wait would hang.
+    await page.waitForFunction(
+      () => document.querySelectorAll('#video-format-select option').length > 0,
+      null,
+      { timeout: 60000 },
+    );
+    const title = await page.$eval('.queue-item-title', (el) => el.textContent);
     check('M1: title fetched', title && title.length > 0, title);
-    const hasThumb = (await page.$('#metadata-thumbnail')) !== null;
+    const hasThumb = await page.$eval('.queue-item-thumb', (el) => el.tagName === 'IMG');
     check('M2: thumbnail element present', hasThumb);
-    const durationText = await page.$eval('#metadata-duration', (el) => el.textContent).catch(() => null);
-    check('M3: duration text present', !!durationText, durationText);
+    const channelText = await page.$eval('.queue-item-channel', (el) => el.textContent).catch(() => null);
+    check('M3: duration text present', !!channelText, channelText);
 
     const videoOptionCount = await page.$$eval('#video-format-select option', (opts) => opts.length);
     check('M4: video format options populated', videoOptionCount > 0, videoOptionCount);

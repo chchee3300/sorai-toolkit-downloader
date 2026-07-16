@@ -474,6 +474,95 @@ body.drag-active::after {
 }
 
 /* ════════════════════════════════════════════════════════════
+   QUEUE LIST (Downloader's batch queue -- QueueList.jsx)
+   Mirrored from the hub's shipping copy (sorai-toolkit/resources/styles.css)
+   for this repo's own standalone dev harness -- keep in sync manually.
+   ════════════════════════════════════════════════════════════ */
+.queue-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--glass-border);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.queue-item:last-child { border-bottom: none; }
+
+.queue-item:hover { background: var(--surface-2); }
+
+.queue-item.is-selected {
+  background: var(--accent-dim);
+  border-color: rgba(91,127,255,0.35);
+}
+
+.queue-item-thumb {
+  width: 64px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--glass-border);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.queue-item-body { min-width: 0; flex: 1; }
+
+.queue-item-title {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-item-channel {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-item-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.4rem;
+  margin-top: 0.2rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+
+.queue-item-meta .val-chip {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.queue-item-state {
+  flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  min-width: 3.5em;
+  text-align: right;
+}
+
+.queue-item-state--done { color: var(--success); }
+.queue-item-state--error { color: var(--danger); }
+
+/* ════════════════════════════════════════════════════════════
    SETTINGS PANEL
    ════════════════════════════════════════════════════════════ */
 #settings-section {
