@@ -36,6 +36,13 @@ const hasAudio = (f) => !isNone(f.acodec)
 // showing up across the pickers).
 const isStoryboard = (f) => (isNone(f.vcodec) && isNone(f.acodec)) || f.ext === 'mhtml'
 const isWebm = (f) => f.ext === 'webm'
+// Twitch-specific: clips recorded/cropped for mobile also get a
+// "portrait-<height>" format_id alongside the regular "<height>" one at the
+// same tier (verified against real yt-dlp -j output) -- a redundant
+// vertical-crop duplicate of the same landscape clip, not a distinct
+// quality option, so drop it rather than clutter the picker with look-alike
+// entries at the same height.
+const isPortraitVariant = (f) => /^portrait-/i.test(f.formatId)
 const isVideoOnly = (f) => hasVideo(f) && !hasAudio(f)
 const isAudioOnly = (f) => hasAudio(f) && !hasVideo(f)
 // Neither field explicitly excludes its stream -- e.g. Twitch's HLS
@@ -57,7 +64,7 @@ export function parseMetadataJson(text) {
       acodec: f.acodec ?? null,
       filesize: f.filesize || f.filesize_approx || null,
     }))
-    .filter((f) => !isStoryboard(f) && !isWebm(f))
+    .filter((f) => !isStoryboard(f) && !isWebm(f) && !isPortraitVariant(f))
 
   const videoFormats = mapped.filter(isVideoOnly)
   const audioFormats = mapped.filter(isAudioOnly)
