@@ -5,6 +5,28 @@ import DownloadPanel from './components/DownloadPanel.jsx'
 import StatusBar from './components/StatusBar.jsx'
 import { useDownloader } from './hooks/useDownloader.js'
 
+// Same "N file(s) · Clear all" header sorai-toolkit-converter's App.jsx
+// puts above FileList (.filelist-header/.mono-label/.btn-ghost, all
+// existing classes -- no new CSS needed). No "Add files" button here,
+// unlike Converter's version -- UrlPanel's URL input above is Downloader's
+// equivalent add affordance, so this header only needs Clear all.
+function QueueHeader({ count, onClearAll }) {
+  return (
+    <div className="filelist-header">
+      <span className="mono-label tabular-nums">
+        {count} video{count !== 1 ? 's' : ''}
+      </span>
+      <button className="btn btn-ghost btn-xs" id="btn-clear-queue" onClick={onClearAll}>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+          <line x1="3" y1="3" x2="13" y2="13" />
+          <line x1="13" y1="3" x2="3" y2="13" />
+        </svg>
+        Clear all
+      </button>
+    </div>
+  )
+}
+
 // This is the Downloader tool's own content -- no <Header>, no
 // useTheme()/useUpdateChecker() here, same reasoning as
 // sorai-toolkit-converter's App.jsx: those are shell/hub-level concerns.
@@ -25,6 +47,7 @@ function App() {
     toggleIncludeVideo,
     toggleIncludeAudio,
     removeItem,
+    clearAll,
     outputPath,
     browseForOutputFolder,
     queueRunning,
@@ -43,12 +66,17 @@ function App() {
         <div className="main-columns">
           <section className="panel panel--ghost" id="url-panel">
             <UrlPanel url={url} setUrl={setUrl} addError={addError} onAdd={addAndFetch} />
-            <QueueList
-              items={items}
-              selectedItemId={selectedItem?.id ?? null}
-              onSelect={selectItem}
-              onRemove={removeItem}
-            />
+            {items.length > 0 && (
+              <>
+                <QueueHeader count={items.length} onClearAll={clearAll} />
+                <QueueList
+                  items={items}
+                  selectedItemId={selectedItem?.id ?? null}
+                  onSelect={selectItem}
+                  onRemove={removeItem}
+                />
+              </>
+            )}
           </section>
 
           {selectedItem ? (

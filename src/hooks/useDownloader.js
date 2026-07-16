@@ -178,6 +178,22 @@ export function useDownloader() {
     setItemsAndRef((prev) => prev.filter((it) => it.id !== id))
   }, [setItemsAndRef])
 
+  // Mirrors sorai-toolkit-converter's clearFiles -- cancels whatever's
+  // currently downloading first (same guard as removeItem), then wipes the
+  // whole queue. selectedItemId is left as-is; App.jsx's fallback
+  // (items.find(...) || items[0] || null) naturally resolves to null once
+  // items is empty.
+  const clearAll = useCallback(() => {
+    const running = itemsRef.current.some((it) => it.downloadState === 'downloading')
+    if (running) {
+      cancelRequestedRef.current = true
+      if (currentSpawnedIdRef.current != null) {
+        window.Neutralino.os.updateSpawnedProcess(currentSpawnedIdRef.current, 'exit').catch(() => {})
+      }
+    }
+    setItemsAndRef([])
+  }, [setItemsAndRef])
+
   const browseForOutputFolder = useCallback(async () => {
     const entry = await window.Neutralino.os.showFolderDialog('Select Download Folder')
     if (entry) setOutputPath(entry)
@@ -295,6 +311,7 @@ export function useDownloader() {
     toggleIncludeVideo,
     toggleIncludeAudio,
     removeItem,
+    clearAll,
     outputPath,
     browseForOutputFolder,
     queueRunning,
