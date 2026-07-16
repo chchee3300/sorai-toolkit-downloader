@@ -10,6 +10,7 @@ import {
   buildFormatSelector,
   detectPlatform,
 } from '../lib/ytdlp.js'
+import { tNow } from '../i18n/dict.js'
 
 // Ported from sorai-toolkit-converter's useExecute.js's runCommandWithLogs --
 // same spawnProcess + 'spawnedProcess' event pattern. Generic/stateless per
@@ -61,10 +62,16 @@ export function useDownloader() {
 
   const [selectedItemId, setSelectedItemId] = useState(null)
   const [url, setUrl] = useState('')
+  // addError holds a dict KEY (e.g. 'error.enterUrl'), translated at render
+  // in UrlPanel -- t() returns unknown keys verbatim, so raw passthrough
+  // text would still display if one ever lands here.
   const [addError, setAddError] = useState('')
   const [outputPath, setOutputPath] = useState('')
   const [queueRunning, setQueueRunning] = useState(false)
-  const [status, setStatus] = useState({ text: 'Ready', state: 'ready' })
+  // Status is stored as a dict KEY + params, translated at render in
+  // App.jsx, so the always-visible status bar switches language live
+  // instead of freezing whatever language was active when it was set.
+  const [status, setStatus] = useState({ key: 'status.ready', params: undefined, state: 'ready' })
 
   const cancelRequestedRef = useRef(false)
   const currentSpawnedIdRef = useRef(null)
@@ -100,7 +107,7 @@ export function useDownloader() {
   const addAndFetch = useCallback(async () => {
     const trimmedUrl = url.trim()
     if (!trimmedUrl) {
-      setAddError('Enter a URL')
+      setAddError('error.enterUrl')
       return
     }
     setAddError('')
@@ -220,7 +227,7 @@ export function useDownloader() {
   const cancel = useCallback(() => {
     if (!queueRunning || cancelRequestedRef.current) return
     cancelRequestedRef.current = true
-    setStatus({ text: 'Cancelling…', state: 'busy' })
+    setStatus({ key: 'status.cancelling', state: 'busy' })
     if (currentSpawnedIdRef.current != null) {
       window.Neutralino.os.updateSpawnedProcess(currentSpawnedIdRef.current, 'exit').catch(() => {})
     }
@@ -239,7 +246,7 @@ export function useDownloader() {
     cancelRequestedRef.current = false
     const totalPending = itemsRef.current.filter((it) => it.downloadState === 'pending').length
     let doneCount = 0
-    setStatus({ text: `Downloading 1 of ${totalPending}…`, state: 'busy' })
+    setStatus({ key: 'status.downloading', params: { done: 1, total: totalPending }, state: 'busy' })
 
     let index = 0
     while (index < itemsRef.current.length) {
@@ -260,8 +267,8 @@ export function useDownloader() {
       }
 
       doneCount++
-      setStatus({ text: `Downloading ${doneCount} of ${totalPending}…`, state: 'busy' })
-      patchItem(item.id, { downloadState: 'downloading', progressPercent: 0, progressText: 'Starting…' })
+      setStatus({ key: 'status.downloading', params: { done: doneCount, total: totalPending }, state: 'busy' })
+      patchItem(item.id, { downloadState: 'downloading', progressPercent: 0, progressText: tNow('progress.starting') })
 
       // Combined-mode formats are already muxed -- a single format id, no
       // video+audio selector building and no merge step at all.
@@ -313,12 +320,12 @@ export function useDownloader() {
           currentSpawnedIdRef,
           cancelRequestedRef,
         )
-        patchItem(item.id, { downloadState: 'done', progressPercent: 100, progressText: 'Done' })
+        patchItem(item.id, { downloadState: 'done', progressPercent: 100, progressText: tNow('progress.done') })
       } catch (err) {
         if (cancelRequestedRef.current) {
-          patchItem(item.id, { downloadState: 'cancelled', progressText: 'Cancelled' })
+          patchItem(item.id, { downloadState: 'cancelled', progressText: tNow('progress.cancelled') })
         } else {
-          patchItem(item.id, { downloadState: 'error', progressText: 'Failed', errorMessage: err.message || String(err) })
+          patchItem(item.id, { downloadState: 'error', progressText: tNow('progress.failed'), errorMessage: err.message || String(err) })
         }
       }
     }
@@ -327,7 +334,7 @@ export function useDownloader() {
     cancelRequestedRef.current = false
     currentSpawnedIdRef.current = null
     setQueueRunning(false)
-    setStatus(wasCancelled ? { text: 'Cancelled', state: 'ready' } : { text: 'Download complete', state: 'ready' })
+    setStatus(wasCancelled ? { key: 'status.cancelled', state: 'ready' } : { key: 'status.complete', state: 'ready' })
   }, [outputPath, patchItem, queueRunning])
 
   return {

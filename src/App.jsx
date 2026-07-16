@@ -4,6 +4,7 @@ import DownloadIntro from './components/DownloadIntro.jsx'
 import DownloadPanel from './components/DownloadPanel.jsx'
 import StatusBar from './components/StatusBar.jsx'
 import { useDownloader } from './hooks/useDownloader.js'
+import { useTranslation } from './hooks/useTranslation.js'
 
 // Same "N file(s) · Clear all" header sorai-toolkit-converter's App.jsx
 // puts above FileList (.filelist-header/.mono-label/.btn-ghost, all
@@ -11,17 +12,18 @@ import { useDownloader } from './hooks/useDownloader.js'
 // unlike Converter's version -- UrlPanel's URL input above is Downloader's
 // equivalent add affordance, so this header only needs Clear all.
 function QueueHeader({ count, onClearAll }) {
+  const { t } = useTranslation()
   return (
     <div className="filelist-header">
       <span className="mono-label tabular-nums">
-        {count} video{count !== 1 ? 's' : ''}
+        {t('queueHeader.count', { count })}
       </span>
       <button className="btn btn-ghost btn-xs" id="btn-clear-queue" onClick={onClearAll}>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
           <line x1="3" y1="3" x2="13" y2="13" />
           <line x1="13" y1="3" x2="3" y2="13" />
         </svg>
-        Clear all
+        {t('queueHeader.clearAll')}
       </button>
     </div>
   )
@@ -35,6 +37,7 @@ function QueueHeader({ count, onClearAll }) {
 // (`neu run` here via src/main.jsx) it's the same component with no
 // surrounding chrome.
 function App() {
+  const { t } = useTranslation()
   const {
     items,
     selectedItemId,
@@ -107,7 +110,10 @@ function App() {
           )}
         </div>
       </main>
-      <StatusBar text={status.text} state={status.state} />
+      {/* status carries a dict key + params (see useDownloader's setStatus),
+          translated here at render so the always-on status bar re-renders in
+          the new language immediately on a switch. */}
+      <StatusBar text={t(status.key, status.params)} state={status.state} />
     </>
   )
 }

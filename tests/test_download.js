@@ -96,7 +96,7 @@ async function main() {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     page.on('pageerror', (err) => console.log('PAGE ERROR:', err.message));
-    await page.addInitScript((t) => { try { sessionStorage.setItem('NL_TOKEN', t); } catch (e) {} }, auth.nlToken);
+    await page.addInitScript((t) => { try { sessionStorage.setItem('NL_TOKEN', t); localStorage.setItem('sorai-lang', 'en'); } catch (e) {} }, auth.nlToken); // sorai-lang pinned: this suite asserts English UI strings, and i18n auto-detects the OS locale (zh-TW on this dev machine) when no saved preference exists
     await page.goto(url);
     await page.waitForSelector('#url-panel');
     await page.waitForFunction(() => typeof window.Neutralino !== 'undefined' && !!window.EstellaLib?.platform);

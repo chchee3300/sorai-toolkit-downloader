@@ -9,11 +9,11 @@ import './index.css'
 // instead (see that file's comment). Same pattern as sorai-toolkit-converter.
 import '../resources/js/liquid-glass.js'
 
-// platform.js attaches to window.EstellaLib.platform -- this repo's own
-// dev-harness copy (see resources/js/lib/platform.js's header comment).
-// When this component is consumed as a library by the hub, the hub
-// supplies its own copy instead; this repo's copy only matters for
-// standalone `neu run`/`vite dev` here.
+// platform.js/i18n.js attach to window.EstellaLib.* -- this repo's own
+// dev-harness copies (see each file's header comment). When this component
+// is consumed as a library by the hub, the hub supplies its own copies
+// instead; these only matter for standalone `neu run`/`vite dev` here.
+import '../resources/js/lib/i18n.js'
 import '../resources/js/lib/platform.js'
 
 if (window.Neutralino) {

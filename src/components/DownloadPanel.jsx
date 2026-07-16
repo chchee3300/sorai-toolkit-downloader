@@ -1,5 +1,6 @@
 import GlassSelect from './GlassSelect.jsx'
 import { videoFormatOptionLabel, audioFormatOptionLabel, combinedFormatOptionLabel } from '../lib/ytdlp.js'
+import { useTranslation } from '../hooks/useTranslation.js'
 
 // Right column: shows the currently SELECTED queue item's independent
 // video/audio quality pickers, plus the queue-wide output folder and
@@ -19,6 +20,7 @@ export default function DownloadPanel({
   onStart,
   onCancel,
 }) {
+  const { t } = useTranslation()
   const metadata = item.metadata
   const itemBusy = item.downloadState === 'downloading'
   const videoAvailable = !!metadata && metadata.videoFormats.length > 0
@@ -31,16 +33,16 @@ export default function DownloadPanel({
   const videoCheckboxDisabled = itemBusy || !videoAvailable || (item.includeVideo && !item.includeAudio)
   const audioCheckboxDisabled = itemBusy || !audioAvailable || (item.includeAudio && !item.includeVideo)
   const autoMergeDisabled = itemBusy || !(item.includeVideo && item.includeAudio)
-  const startLabel = itemCount > 1 ? `Start Download (${itemCount})` : 'Start Download'
+  const startLabel = t('panel.start', { itemCount })
 
   return (
     <section className="panel" id="download-settings">
       <div className="settings-block">
-        <p className="settings-subtitle">Format</p>
+        <p className="settings-subtitle">{t('panel.format')}</p>
 
         {!metadata ? (
           <p className="intro-lede">
-            {item.fetching ? 'Fetching video info…' : item.fetchError || 'Waiting for video info…'}
+            {item.fetching ? t('panel.fetching') : item.fetchError || t('panel.waiting')}
           </p>
         ) : item.mode === 'combined' ? (
           // Source only offers already-muxed formats (e.g. Twitch clips
@@ -48,7 +50,7 @@ export default function DownloadPanel({
           // picker, no include toggles or merge option since there's
           // nothing to combine.
           <div className="field">
-            <label className="field-label" htmlFor="combined-format-select">Quality</label>
+            <label className="field-label" htmlFor="combined-format-select">{t('panel.quality')}</label>
             <GlassSelect
               id="combined-format-select"
               value={item.selectedCombinedFormatId}
@@ -66,7 +68,7 @@ export default function DownloadPanel({
           <>
             <div className="field">
               <div className="field-label-row">
-                <label className="field-label" htmlFor="video-format-select">Video quality</label>
+                <label className="field-label" htmlFor="video-format-select">{t('panel.videoQuality')}</label>
                 <label className="toggle-check">
                   <input
                     type="checkbox"
@@ -75,7 +77,7 @@ export default function DownloadPanel({
                     disabled={videoCheckboxDisabled}
                     onChange={onToggleIncludeVideo}
                   />
-                  Include video
+                  {t('panel.includeVideo')}
                 </label>
               </div>
               <GlassSelect
@@ -94,7 +96,7 @@ export default function DownloadPanel({
 
             <div className="field">
               <div className="field-label-row">
-                <label className="field-label" htmlFor="audio-format-select">Audio quality</label>
+                <label className="field-label" htmlFor="audio-format-select">{t('panel.audioQuality')}</label>
                 <label className="toggle-check">
                   <input
                     type="checkbox"
@@ -103,7 +105,7 @@ export default function DownloadPanel({
                     disabled={audioCheckboxDisabled}
                     onChange={onToggleIncludeAudio}
                   />
-                  Include audio
+                  {t('panel.includeAudio')}
                 </label>
               </div>
               <GlassSelect
@@ -128,7 +130,7 @@ export default function DownloadPanel({
                 disabled={autoMergeDisabled}
                 onChange={(e) => onUpdateItem({ autoMerge: e.target.checked })}
               />
-              Merge into single MP4
+              {t('panel.mergeMp4')}
             </label>
           </>
         )}
@@ -137,21 +139,21 @@ export default function DownloadPanel({
       <div className="panel-divider"></div>
 
       <div className="settings-block">
-        <label className="field-label" htmlFor="output-path">Download folder</label>
+        <label className="field-label" htmlFor="output-path">{t('panel.downloadFolder')}</label>
         <div className="path-row">
           <input
             type="text"
             className="input"
             id="output-path"
             readOnly
-            placeholder="Choose a folder…"
+            placeholder={t('panel.folderPlaceholder')}
             value={outputPath}
           />
           <button className="btn btn-outline btn-sm" id="btn-select-output" onClick={onBrowseOutput} disabled={queueRunning}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M2 4.5c0-.55.45-1 1-1h3.2l1 1.3H13c.55 0 1 .45 1 1v6.2c0 .55-.45 1-1 1H3c-.55 0-1-.45-1-1V4.5z" />
             </svg>
-            Browse
+            {t('panel.browse')}
           </button>
         </div>
       </div>
@@ -162,7 +164,7 @@ export default function DownloadPanel({
         {queueRunning ? (
           <button type="button" className="btn btn-outline-danger btn-execute" id="btn-download" onClick={onCancel}>
             <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="8" height="8" /></svg>
-            Cancel
+            {t('panel.cancel')}
           </button>
         ) : (
           <button
