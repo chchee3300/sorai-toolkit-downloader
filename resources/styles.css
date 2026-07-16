@@ -484,25 +484,45 @@ body.drag-active::after {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
 }
 
+/* Raised-card depth -- same drop-shadow + inset-top-highlight language as
+   .input/.btn-primary, not the flat bordered-row look .file-item uses.
+   Each queue row drives the whole right panel while selected, so it earns
+   the same physical/pressable affordance as an actual button. */
 .queue-item {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.55rem 1rem;
-  border-bottom: 1px solid var(--glass-border);
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--glass-border);
+  background: var(--surface-1);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.04);
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.15s, transform 0.15s;
 }
 
-.queue-item:last-child { border-bottom: none; }
+.queue-item:hover {
+  background: var(--surface-2);
+  border-color: var(--glass-border-hi);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -2px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.06);
+}
 
-.queue-item:hover { background: var(--surface-2); }
-
+/* Selected state borrows .btn-primary's accent-glow shadow instead of the
+   flat .lg-option.is-selected treatment used for momentary dropdown picks. */
 .queue-item.is-selected {
   background: var(--accent-dim);
-  border-color: rgba(91,127,255,0.35);
+  border-color: rgba(91,127,255,0.45);
+  box-shadow: 0 3px 10px -2px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+.queue-item.is-selected:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px -2px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,0.12);
 }
 
 .queue-item-thumb {

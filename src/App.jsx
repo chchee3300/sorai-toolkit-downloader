@@ -53,6 +53,16 @@ function App() {
 
           {selectedItem ? (
             <DownloadPanel
+              // Force a full remount per item -- GlassSelect's underlying
+              // <select> mounts LiquidSelect once and never rebuilds its
+              // custom dropdown's option list on prop changes (only the
+              // trigger text/highlight sync on value change, see
+              // liquid-glass.js's sync() vs rebuildOptions()). Without this
+              // key, switching between items with different available
+              // formats leaves the visible dropdown showing whichever
+              // item's formats were present the last time this DOM node
+              // actually (re)mounted, not the currently-selected item's.
+              key={selectedItem.id}
               item={selectedItem}
               onUpdateItem={(patch) => updateItem(selectedItem.id, patch)}
               onToggleIncludeVideo={() => toggleIncludeVideo(selectedItem.id)}
