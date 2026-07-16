@@ -1,5 +1,5 @@
 import GlassSelect from './GlassSelect.jsx'
-import { videoFormatOptionLabel, audioFormatOptionLabel } from '../lib/ytdlp.js'
+import { videoFormatOptionLabel, audioFormatOptionLabel, combinedFormatOptionLabel } from '../lib/ytdlp.js'
 
 // Right column: shows the currently SELECTED queue item's independent
 // video/audio quality pickers, plus the queue-wide output folder and
@@ -42,6 +42,26 @@ export default function DownloadPanel({
           <p className="intro-lede">
             {item.fetching ? 'Fetching video info…' : item.fetchError || 'Waiting for video info…'}
           </p>
+        ) : item.mode === 'combined' ? (
+          // Source only offers already-muxed formats (e.g. Twitch clips
+          // never split video/audio into separate streams) -- one quality
+          // picker, no include toggles or merge option since there's
+          // nothing to combine.
+          <div className="field">
+            <label className="field-label" htmlFor="combined-format-select">Quality</label>
+            <GlassSelect
+              id="combined-format-select"
+              value={item.selectedCombinedFormatId}
+              onChange={(e) => onUpdateItem({ selectedCombinedFormatId: e.target.value })}
+              disabled={itemBusy || metadata.combinedFormats.length === 0}
+            >
+              {metadata.combinedFormats.map((f) => (
+                <option key={f.formatId} value={f.formatId}>
+                  {combinedFormatOptionLabel(f)}
+                </option>
+              ))}
+            </GlassSelect>
+          </div>
         ) : (
           <>
             <div className="field">

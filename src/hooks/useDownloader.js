@@ -6,7 +6,9 @@ import {
   parseDownloadProgress,
   bestVideoFormatId,
   bestAudioFormatId,
+  bestCombinedFormatId,
   buildFormatSelector,
+  detectPlatform,
 } from '../lib/ytdlp.js'
 
 // Ported from sorai-toolkit-converter's useExecute.js's runCommandWithLogs --
@@ -106,11 +108,24 @@ export function useDownloader() {
     setItemsAndRef((prev) => [...prev, {
       id,
       url: trimmedUrl,
+      // Display-only (queue-row badge) -- detected from the URL itself, not
+      // from yt-dlp's response, so it's available immediately even before
+      // the fetch resolves.
+      platform: detectPlatform(trimmedUrl),
       metadata: null,
       fetching: true,
       fetchError: '',
+      // 'split': independent video-only/audio-only streams + merge (the
+      // YouTube-shaped case). 'combined': a single already-muxed format per
+      // quality tier, no merge needed (Twitch never offers separate
+      // streams at all; some sources mix both -- split wins when both
+      // exist since it gives finer quality control). Set for real once
+      // metadata resolves; 'split' here is just a harmless placeholder
+      // since DownloadPanel gates on `!metadata` before reading it.
+      mode: 'split',
       selectedVideoFormatId: '',
       selectedAudioFormatId: '',
+      selectedCombinedFormatId: '',
       includeVideo: true,
       includeAudio: true,
       autoMerge: true,
@@ -125,20 +140,23 @@ export function useDownloader() {
     setUrl('')
 
     try {
-      const platform = window.EstellaLib.platform
-      const binPath = platform.resolveBinPath()
-      const ytdlpPath = platform.ytdlpPath(binPath)
+      const platformLib = window.EstellaLib.platform
+      const binPath = platformLib.resolveBinPath()
+      const ytdlpPath = platformLib.ytdlpPath(binPath)
       const command = buildMetadataCommand({ ytdlpPath, url: trimmedUrl })
       const res = await window.Neutralino.os.execCommand(command)
       if (res.exitCode !== 0) {
         throw new Error(res.stdErr?.trim() || `yt-dlp exited with code ${res.exitCode}`)
       }
       const meta = parseMetadataJson(res.stdOut)
+      const hasSplitStreams = meta.videoFormats.length > 0 || meta.audioFormats.length > 0
       patchItem(id, {
         metadata: meta,
         fetching: false,
+        mode: hasSplitStreams ? 'split' : 'combined',
         selectedVideoFormatId: bestVideoFormatId(meta.videoFormats),
         selectedAudioFormatId: bestAudioFormatId(meta.audioFormats),
+        selectedCombinedFormatId: bestCombinedFormatId(meta.combinedFormats),
         includeVideo: meta.videoFormats.length > 0,
         includeAudio: meta.audioFormats.length > 0,
         autoMerge: meta.videoFormats.length > 0 && meta.audioFormats.length > 0,
@@ -233,30 +251,43 @@ export function useDownloader() {
       // selection) -- skip for this run, stays 'pending'. Known v1
       // limitation: click Start again once it's ready.
       if (!item.metadata) continue
-      if (item.includeVideo && !item.selectedVideoFormatId) continue
-      if (item.includeAudio && !item.selectedAudioFormatId) continue
-      if (!item.includeVideo && !item.includeAudio) continue
+      if (item.mode === 'combined') {
+        if (!item.selectedCombinedFormatId) continue
+      } else {
+        if (item.includeVideo && !item.selectedVideoFormatId) continue
+        if (item.includeAudio && !item.selectedAudioFormatId) continue
+        if (!item.includeVideo && !item.includeAudio) continue
+      }
 
       doneCount++
       setStatus({ text: `Downloading ${doneCount} of ${totalPending}…`, state: 'busy' })
       patchItem(item.id, { downloadState: 'downloading', progressPercent: 0, progressText: 'Starting…' })
 
-      const bothIncluded = item.includeVideo && item.includeAudio
-      const formatSelector = buildFormatSelector({
-        includeVideo: item.includeVideo,
-        includeAudio: item.includeAudio,
-        videoFormatId: item.selectedVideoFormatId,
-        audioFormatId: item.selectedAudioFormatId,
-        autoMerge: item.autoMerge,
-      })
-      const mergeToMp4 = bothIncluded && item.autoMerge
-      const noMergeSelector = bothIncluded && !item.autoMerge
+      // Combined-mode formats are already muxed -- a single format id, no
+      // video+audio selector building and no merge step at all.
+      let formatSelector, mergeToMp4, noMergeSelector
+      if (item.mode === 'combined') {
+        formatSelector = item.selectedCombinedFormatId
+        mergeToMp4 = false
+        noMergeSelector = false
+      } else {
+        const bothIncluded = item.includeVideo && item.includeAudio
+        formatSelector = buildFormatSelector({
+          includeVideo: item.includeVideo,
+          includeAudio: item.includeAudio,
+          videoFormatId: item.selectedVideoFormatId,
+          audioFormatId: item.selectedAudioFormatId,
+          autoMerge: item.autoMerge,
+        })
+        mergeToMp4 = bothIncluded && item.autoMerge
+        noMergeSelector = bothIncluded && !item.autoMerge
+      }
 
-      const platform = window.EstellaLib.platform
-      const binPath = platform.resolveBinPath()
+      const platformLib = window.EstellaLib.platform
+      const binPath = platformLib.resolveBinPath()
       const command = buildDownloadCommand({
-        ytdlpPath: platform.ytdlpPath(binPath),
-        ffmpegPath: platform.ffmpegPath(binPath),
+        ytdlpPath: platformLib.ytdlpPath(binPath),
+        ffmpegPath: platformLib.ffmpegPath(binPath),
         url: item.url,
         formatSelector,
         outputDir: outputPath,

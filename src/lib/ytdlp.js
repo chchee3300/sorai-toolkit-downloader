@@ -13,16 +13,36 @@ export function buildMetadataCommand({ ytdlpPath, url }) {
   return `"${ytdlpPath}" -j --no-playlist "${url}"`
 }
 
-// Storyboards (vcodec+acodec both "none") and mhtml containers are yt-dlp
-// housekeeping entries, not real download candidates. webm is excluded
-// site-wide per product decision (avoids a third container family showing
-// up across the two pickers). Pre-muxed combined formats (both vcodec and
-// acodec real) are excluded too -- the two dropdowns only ever offer
-// separate streams, since the UI always builds its own video+audio selector.
-const isStoryboard = (f) => (f.vcodec === 'none' && f.acodec === 'none') || f.ext === 'mhtml'
+// vcodec/acodec classification follows yt-dlp's OWN convention, not an
+// "absent means none" assumption: a format lacks a stream ONLY when yt-dlp
+// explicitly says so with the literal string 'none'. A missing/undefined
+// field means "unknown, assume present" -- yt-dlp's own bestvideo+bestaudio
+// selector logic works the same way. This matters a lot in practice:
+// verified against real yt-dlp -j output, Twitch clips never populate
+// vcodec/acodec on ANY format (they're single pre-muxed HLS renditions,
+// confirmed by having neither key at all) -- treating that as "no video AND
+// no audio" the old `f.vcodec || 'none'` fallback did silently threw away
+// every single format Twitch offers. Twitter/X formats are more mixed: HLS
+// audio-only entries set vcodec:'none' explicitly but omit acodec entirely,
+// and there are also genuine combined progressive ("http-*") formats with
+// neither key set alongside separate hls video-only/hls-audio-only ones.
+const isNone = (v) => v === 'none'
+const hasVideo = (f) => !isNone(f.vcodec)
+const hasAudio = (f) => !isNone(f.acodec)
+
+// Storyboards (vcodec+acodec both explicitly "none") and mhtml containers
+// are yt-dlp housekeeping entries, not real download candidates. webm is
+// excluded site-wide per product decision (avoids a third container family
+// showing up across the pickers).
+const isStoryboard = (f) => (isNone(f.vcodec) && isNone(f.acodec)) || f.ext === 'mhtml'
 const isWebm = (f) => f.ext === 'webm'
-const isVideoOnly = (f) => f.vcodec !== 'none' && f.acodec === 'none'
-const isAudioOnly = (f) => f.acodec !== 'none' && f.vcodec === 'none'
+const isVideoOnly = (f) => hasVideo(f) && !hasAudio(f)
+const isAudioOnly = (f) => hasAudio(f) && !hasVideo(f)
+// Neither field explicitly excludes its stream -- e.g. Twitch's HLS
+// renditions, Twitter's "http-*" progressive formats -- so treat it as
+// already-muxed: one format, no merge needed. Not the same as "unknown";
+// see the block comment above for why undefined defaults to "present".
+const isCombined = (f) => hasVideo(f) && hasAudio(f)
 
 export function parseMetadataJson(text) {
   const data = JSON.parse(text.trim())
@@ -33,13 +53,20 @@ export function parseMetadataJson(text) {
       ext: f.ext || '',
       height: typeof f.height === 'number' ? f.height : null,
       abr: typeof f.abr === 'number' ? f.abr : (typeof f.tbr === 'number' ? f.tbr : null),
-      vcodec: f.vcodec || 'none',
-      acodec: f.acodec || 'none',
+      vcodec: f.vcodec ?? null,
+      acodec: f.acodec ?? null,
       filesize: f.filesize || f.filesize_approx || null,
     }))
+    .filter((f) => !isStoryboard(f) && !isWebm(f))
 
-  const videoFormats = mapped.filter((f) => isVideoOnly(f) && !isStoryboard(f) && !isWebm(f))
-  const audioFormats = mapped.filter((f) => isAudioOnly(f) && !isStoryboard(f) && !isWebm(f))
+  const videoFormats = mapped.filter(isVideoOnly)
+  const audioFormats = mapped.filter(isAudioOnly)
+  // Only surfaced when there's nothing else to offer (see useDownloader.js's
+  // mode selection) -- when real separate streams exist (YouTube, and often
+  // Twitter/X) those give better quality control and stay the default UX;
+  // combined formats are the fallback for sources that never split streams
+  // at all (Twitch).
+  const combinedFormats = mapped.filter(isCombined)
 
   return {
     title: data.title || 'Untitled',
@@ -48,7 +75,29 @@ export function parseMetadataJson(text) {
     channel: data.channel || data.uploader || null,
     videoFormats,
     audioFormats,
+    combinedFormats,
   }
+}
+
+// Detects which known platform a URL belongs to, for display purposes only
+// (a small badge on the queue row) -- NOT a gate on what can be added.
+// yt-dlp supports far more sites than these three; anything else falls back
+// to a generic label rather than being rejected.
+const PLATFORM_PATTERNS = [
+  { id: 'youtube', label: 'YouTube', re: /(^|\.)(youtube\.com|youtu\.be)$/i },
+  { id: 'twitch', label: 'Twitch', re: /(^|\.)twitch\.tv$/i },
+  { id: 'twitter', label: 'X', re: /(^|\.)(twitter\.com|x\.com)$/i },
+]
+
+export function detectPlatform(url) {
+  try {
+    const hostname = new URL(url).hostname
+    const match = PLATFORM_PATTERNS.find((p) => p.re.test(hostname))
+    if (match) return { id: match.id, label: match.label }
+  } catch (e) {
+    /* not a parseable URL yet -- fall through to generic */
+  }
+  return { id: 'generic', label: 'Video' }
 }
 
 export function formatBytes(n) {
@@ -94,6 +143,13 @@ export function audioFormatOptionLabel(f) {
   return [kbps, f.ext, formatBytes(f.filesize)].filter(Boolean).join(' · ')
 }
 
+// Combined (already-muxed) formats only ever carry a height reliably
+// (Twitch never reports abr/tbr on them) -- same resolution-tier label as
+// video-only, no separate audio line since it's one file either way.
+export function combinedFormatOptionLabel(f) {
+  return [videoQualityLabel(f.height), f.ext, formatBytes(f.filesize)].filter(Boolean).join(' · ')
+}
+
 // Best-quality default: sort explicitly by the numeric quality field rather
 // than trusting yt-dlp's implicit worst-to-best JSON ordering, since that
 // ordering is undocumented and we already have the numeric fields on hand.
@@ -110,6 +166,14 @@ export function bestAudioFormatId(audioFormats) {
   if (!audioFormats.length) return ''
   const sorted = [...audioFormats].sort(
     (a, b) => (b.abr || 0) - (a.abr || 0) || (b.filesize || 0) - (a.filesize || 0),
+  )
+  return sorted[0].formatId
+}
+
+export function bestCombinedFormatId(combinedFormats) {
+  if (!combinedFormats.length) return ''
+  const sorted = [...combinedFormats].sort(
+    (a, b) => (b.height || 0) - (a.height || 0) || (b.filesize || 0) - (a.filesize || 0),
   )
   return sorted[0].formatId
 }

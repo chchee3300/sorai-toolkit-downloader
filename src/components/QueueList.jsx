@@ -1,4 +1,4 @@
-import { formatBytes, formatDuration, videoFormatOptionLabel, audioFormatOptionLabel } from '../lib/ytdlp.js'
+import { formatBytes, formatDuration, videoFormatOptionLabel, audioFormatOptionLabel, combinedFormatOptionLabel } from '../lib/ytdlp.js'
 
 function modeLabel(item) {
   if (item.includeVideo && item.includeAudio) return 'Video + Audio'
@@ -29,8 +29,19 @@ function stateClassName(item) {
 // One queue row's compact settings summary -- video quality label, audio
 // quality label, and total estimated size, so the item's current config is
 // readable at a glance without opening it (right panel is where you'd
-// actually change any of this).
+// actually change any of this). Combined-mode sources (Twitch clips, which
+// never split video/audio into separate streams at all) have nothing to
+// summarize as a mode -- just the one picked format's own label.
 function SettingsSummary({ item }) {
+  if (item.mode === 'combined') {
+    const combined = item.metadata?.combinedFormats.find((f) => f.formatId === item.selectedCombinedFormatId)
+    return (
+      <div className="queue-item-meta">
+        {combined && <span>{combinedFormatOptionLabel(combined)}</span>}
+      </div>
+    )
+  }
+
   const video = item.metadata?.videoFormats.find((f) => f.formatId === item.selectedVideoFormatId)
   const audio = item.metadata?.audioFormats.find((f) => f.formatId === item.selectedAudioFormatId)
   const totalSize = (item.includeVideo ? video?.filesize || 0 : 0) + (item.includeAudio ? audio?.filesize || 0 : 0)
@@ -76,7 +87,11 @@ function QueueItemRow({ item, selected, onSelect, onRemove }) {
       <div className="queue-item-body">
         <p className="queue-item-title">{item.metadata?.title || item.url}</p>
         <p className="queue-item-channel">
-          {[item.metadata?.channel, item.metadata?.duration != null ? formatDuration(item.metadata.duration) : null]
+          {[
+            item.platform.label,
+            item.metadata?.channel,
+            item.metadata?.duration != null ? formatDuration(item.metadata.duration) : null,
+          ]
             .filter(Boolean)
             .join(' · ')}
         </p>
