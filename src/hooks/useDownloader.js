@@ -45,6 +45,46 @@ function runCommandWithLogs(command, onProgress, spawnedIdRef, cancelRequestedRe
   })
 }
 
+// Ported from sorai-toolkit-converter's useExecute.js's awaitWithCancelGuard --
+// safety backstop for cancel(): a forced kill (Neutralino.os.updateSpawnedProcess
+// with 'exit') isn't guaranteed to fire the spawnedProcess 'exit' event
+// promptly, or at all, on every platform -- without this, runCommandWithLogs's
+// promise could hang forever and leave the queue stuck on "Cancelling...".
+// Once cancelRequestedRef flips true (checked here via a lightweight poll,
+// since cancellation can happen at any point during the awaited command, not
+// just at call time), arm a timeout; if it fires first, reject so the
+// caller's existing catch block treats this the same as any other
+// cancelled-item outcome. Resolves/rejects exactly once, whichever comes first.
+function awaitWithCancelGuard(promise, cancelRequestedRef, timeoutMs = 3000) {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let deadlineTimer = null
+    const settle = (fn, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(deadlineTimer)
+      clearInterval(pollInterval)
+      fn(value)
+    }
+    promise.then(
+      (v) => settle(resolve, v),
+      (e) => settle(reject, e),
+    )
+    const armDeadline = () => {
+      if (deadlineTimer) return
+      deadlineTimer = setTimeout(
+        () => settle(reject, new Error('Cancelled (timed out waiting for process exit)')),
+        timeoutMs,
+      )
+    }
+    if (cancelRequestedRef.current) armDeadline()
+    const pollInterval = setInterval(() => {
+      if (settled) return
+      if (cancelRequestedRef.current) armDeadline()
+    }, 100)
+  })
+}
+
 export function useDownloader() {
   const [items, setItems] = useState([])
   // Async-safe mirror of `items` -- addAndFetch (one call per queued URL,
@@ -307,21 +347,24 @@ export function useDownloader() {
       })
 
       try {
-        await runCommandWithLogs(
-          command,
-          (chunk) => {
-            const progress = parseDownloadProgress(chunk)
-            if (progress) {
-              patchItem(item.id, {
-                progressPercent: progress.percent,
-                progressText:
-                  `${progress.percent.toFixed(1)}%` +
-                  (progress.speed && progress.speed !== 'NA' ? ` · ${progress.speed}` : '') +
-                  (progress.eta && progress.eta !== 'NA' ? ` · ETA ${progress.eta}` : ''),
-              })
-            }
-          },
-          currentSpawnedIdRef,
+        await awaitWithCancelGuard(
+          runCommandWithLogs(
+            command,
+            (chunk) => {
+              const progress = parseDownloadProgress(chunk)
+              if (progress) {
+                patchItem(item.id, {
+                  progressPercent: progress.percent,
+                  progressText:
+                    `${progress.percent.toFixed(1)}%` +
+                    (progress.speed && progress.speed !== 'NA' ? ` · ${progress.speed}` : '') +
+                    (progress.eta && progress.eta !== 'NA' ? ` · ETA ${progress.eta}` : ''),
+                })
+              }
+            },
+            currentSpawnedIdRef,
+            cancelRequestedRef,
+          ),
           cancelRequestedRef,
         )
         patchItem(item.id, { downloadState: 'done', progressPercent: 100, progressText: tNow('progress.done') })
