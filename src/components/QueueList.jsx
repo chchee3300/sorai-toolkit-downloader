@@ -68,7 +68,12 @@ function SettingsSummary({ item, t }) {
 
 function QueueItemRow({ item, selected, onSelect, onRemove, onOpenClip }) {
   const { t } = useTranslation()
-  const showClipBtn = item.platform.id === 'youtube' && item.metadata?.duration != null
+  // Any source with a known duration can be clipped -- not just YouTube.
+  // Sources whose combined formats are all HLS (Twitch, most Twitter/X
+  // videos) never get a pickPreviewUrl() hit, so ClipModal falls back to
+  // its thumbnail+timeline degraded mode there; the slider/save/download
+  // path itself doesn't care what platform the URL came from.
+  const showClipBtn = item.metadata?.duration != null
   return (
     <div
       className={selected ? 'queue-item is-selected' : 'queue-item'}

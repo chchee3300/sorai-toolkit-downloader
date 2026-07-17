@@ -3,17 +3,18 @@ import { rangeFillStyle } from '../lib/rangeFill.js'
 import { useTranslation } from '../hooks/useTranslation.js'
 
 // Ported from sorai-toolkit-converter's TrimModal.jsx -- same dual-thumb drag
-// slider, but scoped to YouTube-only video clipping instead of arbitrary
-// local media files:
+// slider, but scoped to remote-video clipping (any yt-dlp source with a
+// known duration) instead of arbitrary local media files:
 // - No fileType/<audio> branch -- this tool only ever clips video.
 // - No Neutralino.server.mount/unmount -- the preview player streams
 //   directly from yt-dlp's own metadata (item.metadata.previewUrl), a
-//   remote googlevideo URL, not a local file needing a dev-server mount.
-// - Preview can fail (URL expired/IP-bound, or no progressive format at all
-//   for this source) -- degraded mode swaps the player for a static
-//   thumbnail + a message, but keeps the slider/labels/footer fully usable,
-//   since clipping only needs duration + a UI to pick a range, not a
-//   playable preview.
+//   remote URL, not a local file needing a dev-server mount.
+// - Preview can fail (URL expired/IP-bound, or no progressive http(s)
+//   format at all for this source -- e.g. Twitch/most Twitter videos are
+//   HLS-only, so pickPreviewUrl() never finds a candidate) -- degraded mode
+//   swaps the player for a static thumbnail + a message, but keeps the
+//   slider/labels/footer fully usable, since clipping only needs duration +
+//   a UI to pick a range, not a playable preview.
 function formatClipLabel(seconds) {
   if (isNaN(seconds) || seconds < 0) return '0.0s'
   return seconds.toFixed(1) + 's'
