@@ -136,6 +136,8 @@ export function useDownloader() {
       includeVideo: true,
       includeAudio: true,
       autoMerge: true,
+      clipStart: undefined,
+      clipEnd: undefined,
       downloadState: 'pending',
       progressPercent: 0,
       progressText: '',
@@ -300,6 +302,8 @@ export function useDownloader() {
         outputDir: outputPath,
         mergeToMp4,
         noMergeSelector,
+        clipStart: item.clipStart,
+        clipEnd: item.clipEnd,
       })
 
       try {

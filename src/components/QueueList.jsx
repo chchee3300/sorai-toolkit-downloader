@@ -34,11 +34,16 @@ function stateClassName(item) {
 // never split video/audio into separate streams at all) have nothing to
 // summarize as a mode -- just the one picked format's own label.
 function SettingsSummary({ item, t }) {
+  const clipChip = item.clipStart != null && item.clipEnd != null && (
+    <span className="val-chip secondary tabular-nums">{formatDuration(item.clipStart)}–{formatDuration(item.clipEnd)}</span>
+  )
+
   if (item.mode === 'combined') {
     const combined = item.metadata?.combinedFormats.find((f) => f.formatId === item.selectedCombinedFormatId)
     return (
       <div className="queue-item-meta">
         {combined && <span>{combinedFormatOptionLabel(combined)}</span>}
+        {clipChip}
       </div>
     )
   }
@@ -56,12 +61,14 @@ function SettingsSummary({ item, t }) {
     <div className="queue-item-meta">
       <span className="val-chip secondary">{modeLabel(item, t)}</span>
       {parts.length > 0 && <span>{parts.join(' · ')}</span>}
+      {clipChip}
     </div>
   )
 }
 
-function QueueItemRow({ item, selected, onSelect, onRemove }) {
+function QueueItemRow({ item, selected, onSelect, onRemove, onOpenClip }) {
   const { t } = useTranslation()
+  const showClipBtn = item.platform.id === 'youtube' && item.metadata?.duration != null
   return (
     <div
       className={selected ? 'queue-item is-selected' : 'queue-item'}
@@ -107,6 +114,23 @@ function QueueItemRow({ item, selected, onSelect, onRemove }) {
 
       <span className={stateClassName(item)} title={item.errorMessage || undefined}>{stateLabel(item, t)}</span>
 
+      {showClipBtn && (
+        <button
+          className="btn-trim"
+          title={t('queue.clip')}
+          aria-label={t('queue.clip')}
+          onClick={(e) => { e.stopPropagation(); onOpenClip() }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="6" cy="6" r="3"></circle>
+            <circle cx="6" cy="18" r="3"></circle>
+            <line x1="20" y1="4" x2="8.12" y2="15.88"></line>
+            <line x1="14.47" y1="14.48" x2="20" y2="20"></line>
+            <line x1="8.12" y1="8.12" x2="12" y2="12"></line>
+          </svg>
+        </button>
+      )}
+
       <button
         className="remove"
         aria-label={t('queue.remove')}
@@ -121,7 +145,7 @@ function QueueItemRow({ item, selected, onSelect, onRemove }) {
 // Left-panel queue of added videos -- click a row to select it (App.jsx
 // swaps the right panel to that item's DownloadPanel). Lives inside the
 // same #url-panel ghost panel as UrlPanel's add-row, see App.jsx.
-export default function QueueList({ items, selectedItemId, onSelect, onRemove }) {
+export default function QueueList({ items, selectedItemId, onSelect, onRemove, onOpenClip }) {
   if (items.length === 0) return null
   return (
     <div className="queue-list" id="queue-list">
@@ -132,6 +156,7 @@ export default function QueueList({ items, selectedItemId, onSelect, onRemove })
           selected={item.id === selectedItemId}
           onSelect={() => onSelect(item.id)}
           onRemove={() => onRemove(item.id)}
+          onOpenClip={() => onOpenClip(item.id)}
         />
       ))}
     </div>

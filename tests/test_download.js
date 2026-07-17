@@ -52,6 +52,14 @@ function probeStreams(ffmpegBin, file) {
   };
 }
 
+function probeDurationSeconds(ffmpegBin, file) {
+  const probe = cp.spawnSync(ffmpegBin, ['-i', file], { encoding: 'utf8' });
+  const out = (probe.stderr || '') + (probe.stdout || '');
+  const m = out.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  return parseInt(m[1], 10) * 3600 + parseInt(m[2], 10) * 60 + parseFloat(m[3]);
+}
+
 // Runs one download via the UI into a fresh output dir and waits for
 // completion. Returns the list of output files (absolute paths).
 async function runDownload(page, label) {
@@ -234,6 +242,108 @@ async function main() {
     if (scenarioC.files.length === 1) {
       const streams = probeStreams(ffmpegBin, scenarioC.files[0]);
       check('C7: output has an audio stream and no video stream', streams.hasAudio && !streams.hasVideo, JSON.stringify(streams));
+    }
+
+    console.log('\n--- SCENARIO D: clip a segment (YouTube-only clip feature) ---');
+    // Recover state left by Scenario C (video excluded, audio-only) and by
+    // Scenario B (auto-merge turned off) -- D wants both streams + merge so
+    // the download at the end produces a single file to duration-check.
+    await page.click('#include-video-checkbox');
+    await page.waitForFunction(() => document.getElementById('video-format-select').disabled === false);
+    const autoMergeChecked = await page.$eval('#auto-merge-checkbox', (el) => el.checked);
+    if (!autoMergeChecked) await page.click('#auto-merge-checkbox');
+
+    await page.click('.queue-item .btn-trim');
+    await page.waitForSelector('#clip-modal:not(.hidden)');
+    check('D1: clip modal opens with slider present', !!(await page.$('#clip-slider-container')));
+
+    // trimEnd defaults to the full item duration until a clip is saved, so
+    // reading it here (before any drag) recovers the video's own duration
+    // without needing a separate accessor into React state.
+    const clipDuration = await page.$eval('#clip-label-end', (el) => parseFloat(el.textContent));
+    check('D2: clip modal shows the full video duration by default', clipDuration > 60, clipDuration);
+
+    // No real mouse drag -- this source is long enough that 1px of the
+    // slider track is worth more than a second, nowhere near the precision
+    // a 2s-7s clip needs. Instead dispatch the same synthetic MouseEvent
+    // sequence the drag handler listens for (mousedown on the thumb,
+    // mousemove/mouseup on window), computed analytically from the slider
+    // container's own rect -- three separate page.evaluate round-trips so
+    // React's batched state update from mousedown has flushed before the
+    // mousemove handler reads it.
+    async function dragClipThumb(thumbId, targetSec) {
+      const rect = await page.evaluate(() => {
+        const el = document.getElementById('clip-slider-container');
+        const r = el.getBoundingClientRect();
+        return { left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+      const clientX = rect.left + (targetSec / clipDuration) * rect.width;
+      const clientY = rect.top + rect.height / 2;
+      await page.evaluate(({ thumbId, clientX, clientY }) => {
+        document.getElementById(thumbId).dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX, clientY }));
+      }, { thumbId, clientX, clientY });
+      await page.evaluate(({ clientX, clientY }) => {
+        window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX, clientY }));
+      }, { clientX, clientY });
+      await page.evaluate(({ clientX, clientY }) => {
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX, clientY }));
+      }, { clientX, clientY });
+    }
+
+    await dragClipThumb('clip-thumb-left', 2);
+    await dragClipThumb('clip-thumb-right', 7);
+
+    const startLabel = await page.$eval('#clip-label-start', (el) => parseFloat(el.textContent));
+    const endLabel = await page.$eval('#clip-label-end', (el) => parseFloat(el.textContent));
+    check('D3: start thumb dragged to ~2s', Math.abs(startLabel - 2) < 0.3, startLabel);
+    check('D4: end thumb dragged to ~7s', Math.abs(endLabel - 7) < 0.3, endLabel);
+
+    // Degraded-preview path, exercised opportunistically: Playwright's
+    // bundled Chromium ships without an H.264 decoder, so a previewUrl
+    // pointing at an mp4 progressive stream usually fails to play and
+    // ClipModal falls back to a static thumbnail + message -- if this
+    // source has no progressive stream to begin with, it's degraded from
+    // the very first render instead. Either way, the clip feature must not
+    // depend on playback actually working. Whether degrading is reached at
+    // all is network/format dependent (a slow error, or a source that
+    // genuinely offers a Chromium-playable combined format), so this is a
+    // soft check: assert the fallback UI when degrading is observed, but
+    // don't fail the whole run if the preview happens to play cleanly.
+    let reachedDegraded = false;
+    try {
+      await page.waitForFunction(() => !document.getElementById('btn-play-pause-clip'), null, { timeout: 30000 });
+      reachedDegraded = true;
+    } catch (e) {
+      /* preview played without erroring this run -- nothing to assert */
+    }
+    if (reachedDegraded) {
+      const degradedMessageVisible = await page.evaluate(() =>
+        (document.getElementById('clip-player-container')?.textContent || '').includes('Preview unavailable'),
+      );
+      check('D5: degraded fallback UI shown when the preview cannot play', degradedMessageVisible);
+    } else {
+      console.log('D5: preview played without erroring this run -- degraded path not exercised, skipping');
+    }
+
+    await page.click('#btn-save-clip');
+    // Not '#clip-modal.hidden' -- that's still a `state: 'visible'` wait by
+    // default, and an element made invisible via the `.hidden` class is, by
+    // definition, never going to satisfy "visible". Wait for '#clip-modal'
+    // itself to become hidden instead.
+    await page.waitForSelector('#clip-modal', { state: 'hidden' });
+    const clipChipText = await page.$eval('.queue-item .val-chip.secondary.tabular-nums', (el) => el.textContent).catch(() => null);
+    check('D6: queue chip shows the saved clip range', clipChipText === '0:02–0:07', clipChipText);
+    const rowStateAfterClip = await page.$eval('.queue-item-state', (el) => el.textContent);
+    check('D7: row resets to Queued after saving a clip (invalidates the prior result)', rowStateAfterClip === 'Queued', rowStateAfterClip);
+
+    console.log('\n--- SCENARIO D continued: download the clipped segment ---');
+    const scenarioD = await runDownload(page, 'D8');
+    outDirs.push(scenarioD.outDir);
+    check('D9: exactly one output file for the clipped download', scenarioD.files.length === 1, scenarioD.files.join(', '));
+    if (scenarioD.files.length === 1) {
+      const outFile = scenarioD.files[0];
+      const durationSec = probeDurationSeconds(ffmpegBin, outFile);
+      check('D10: clipped output duration is ~5s (the 2s-7s range)', durationSec != null && Math.abs(durationSec - 5) <= 1.5, durationSec);
     }
   } finally {
     if (browser) await browser.close().catch(() => {});

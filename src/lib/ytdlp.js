@@ -51,6 +51,41 @@ const isAudioOnly = (f) => hasAudio(f) && !hasVideo(f)
 // see the block comment above for why undefined defaults to "present".
 const isCombined = (f) => hasVideo(f) && hasAudio(f)
 
+// Picks a single progressive (already-muxed) stream to feed a <video> tag
+// for ClipModal's preview player -- must come from the RAW data.formats
+// (parseMetadataJson's `mapped` array drops `url` entirely, since normal
+// download flow only ever needs a format_id for yt-dlp's own -f selector).
+// Only http(s) direct file URLs work here: m3u8/dash manifests aren't
+// something a bare <video src> can play, and mhtml is a storyboard, not
+// video. Prefers mp4 near 480p (small enough to load fast, big enough to
+// judge a crop by) over other mp4s over any other combined format; returns
+// null when nothing qualifies so callers fall back to the thumbnail+timeline
+// degraded mode.
+export function pickPreviewUrl(rawFormats) {
+  const candidates = (rawFormats || []).filter((f) =>
+    typeof f.url === 'string' &&
+    /^https?:\/\//i.test(f.url) &&
+    f.vcodec && f.vcodec !== 'none' &&
+    f.acodec && f.acodec !== 'none' &&
+    f.ext !== 'mhtml' &&
+    (f.protocol === 'https' || f.protocol === 'http'),
+  )
+  if (candidates.length === 0) return null
+
+  const tier = (f) => {
+    if (f.ext === 'mp4') return typeof f.height === 'number' ? 0 : 1
+    return 2
+  }
+  const sorted = [...candidates].sort((a, b) => {
+    const ta = tier(a)
+    const tb = tier(b)
+    if (ta !== tb) return ta - tb
+    if (ta === 0) return Math.abs((a.height || 0) - 480) - Math.abs((b.height || 0) - 480)
+    return (a.height || 0) - (b.height || 0)
+  })
+  return sorted[0].url
+}
+
 export function parseMetadataJson(text) {
   const data = JSON.parse(text.trim())
   const mapped = (data.formats || [])
@@ -83,6 +118,7 @@ export function parseMetadataJson(text) {
     videoFormats,
     audioFormats,
     combinedFormats,
+    previewUrl: pickPreviewUrl(data.formats),
   }
 }
 
@@ -214,8 +250,14 @@ export function parseDownloadProgress(chunk) {
   const line = chunk.slice(idx + PROGRESS_PREFIX.length)
   const match = line.match(/^\s*([\d.]+)%\|([^|]*)\|([^\r\n]*)/)
   if (!match) return null
+  const percent = parseFloat(match[1])
+  // --download-sections hands the clipped range to ffmpeg for the actual
+  // cut, and yt-dlp's own percent field can go missing/"N/A" during that
+  // phase -- Number.isFinite screens that out so the UI just stays on
+  // "Starting…" instead of rendering NaN%.
+  if (!Number.isFinite(percent)) return null
   return {
-    percent: parseFloat(match[1]),
+    percent,
     eta: match[2].trim(),
     speed: match[3].trim(),
   }
@@ -233,13 +275,19 @@ export function parseDownloadProgress(chunk) {
 // two same-titled outputs (e.g. same ext family) could collide, and even
 // without collision the user would otherwise have no way to tell which
 // file is which.
-export function buildDownloadCommand({ ytdlpPath, ffmpegPath, url, formatSelector, outputDir, mergeToMp4, noMergeSelector }) {
+export function buildDownloadCommand({ ytdlpPath, ffmpegPath, url, formatSelector, outputDir, mergeToMp4, noMergeSelector, clipStart, clipEnd }) {
+  const hasClip = typeof clipStart === 'number' && typeof clipEnd === 'number' && clipEnd > clipStart
   const parts = [
     `"${ytdlpPath}"`,
     `-f "${formatSelector}"`,
     '--no-playlist',
     `--ffmpeg-location "${ffmpegPath}"`,
     mergeToMp4 ? '--merge-output-format mp4' : null,
+    // --force-keyframes-at-cuts makes ffmpeg re-encode around the cut points
+    // so the range lands on exact seconds instead of the nearest keyframe --
+    // slower, but the length tolerance ClipModal promises depends on it.
+    hasClip ? `--download-sections "*${clipStart.toFixed(2)}-${clipEnd.toFixed(2)}"` : null,
+    hasClip ? '--force-keyframes-at-cuts' : null,
     `-P "${outputDir}"`,
     noMergeSelector ? `-o "%(title)s [%(format_id)s].%(ext)s"` : null,
     '--newline',

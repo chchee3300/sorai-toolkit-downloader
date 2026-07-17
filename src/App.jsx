@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import UrlPanel from './components/UrlPanel.jsx'
 import QueueList from './components/QueueList.jsx'
 import DownloadIntro from './components/DownloadIntro.jsx'
 import DownloadPanel from './components/DownloadPanel.jsx'
 import StatusBar from './components/StatusBar.jsx'
+import ClipModal from './components/ClipModal.jsx'
 import { useDownloader } from './hooks/useDownloader.js'
 import { useTranslation } from './hooks/useTranslation.js'
 
@@ -63,6 +65,12 @@ function App() {
   // was removed -- no extra state to keep in sync, just re-derive on render.
   const selectedItem = items.find((i) => i.id === selectedItemId) || items[0] || null
 
+  // Which queue item's clip modal is open, if any -- separate from
+  // selectedItemId since clipping a row doesn't change which item is shown
+  // in the right-hand DownloadPanel.
+  const [clipItemId, setClipItemId] = useState(null)
+  const clipItem = items.find((i) => i.id === clipItemId) || null
+
   return (
     <>
       <main className="main" id="main-content">
@@ -77,6 +85,7 @@ function App() {
                   selectedItemId={selectedItem?.id ?? null}
                   onSelect={selectItem}
                   onRemove={removeItem}
+                  onOpenClip={setClipItemId}
                 />
               </>
             )}
@@ -110,6 +119,17 @@ function App() {
           )}
         </div>
       </main>
+      {/* Rendered persistently (open prop + .hidden class, not a conditional
+          unmount) -- ClipModal's video ref/event wiring assumes the element
+          stays mounted across opens, same reasoning as sorai-toolkit-converter's
+          TrimModal. */}
+      <ClipModal
+        open={clipItemId != null}
+        item={clipItem}
+        onClose={() => setClipItemId(null)}
+        onSave={(clipStart, clipEnd) => updateItem(clipItem.id, { clipStart, clipEnd })}
+        onClear={() => updateItem(clipItem.id, { clipStart: undefined, clipEnd: undefined })}
+      />
       {/* status carries a dict key + params (see useDownloader's setStatus),
           translated here at render so the always-on status bar re-renders in
           the new language immediately on a switch. */}

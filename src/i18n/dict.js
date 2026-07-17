@@ -34,12 +34,30 @@ export const dict = {
     'queue.state.failed': 'Failed',
     'queue.total': ({ size }) => `Total ${size}`,
     'queue.remove': 'Remove from queue',
+    'queue.clip': 'Clip video segment',
     // Platform badge labels -- YouTube/Twitch/X are proper nouns, identical
     // in every language; only the generic fallback differs.
     'platform.youtube': 'YouTube',
     'platform.twitch': 'Twitch',
     'platform.twitter': 'X',
     'platform.generic': 'Video',
+
+    // ClipModal.jsx -- ported from sorai-toolkit-converter's trimModal.*
+    // keys, plus previewUnavailable for the degraded (no playable preview
+    // stream) fallback.
+    'clipModal.title': 'Clip Video Segment',
+    'clipModal.selected': ({ duration, percent }) => `${duration}s selected (${percent}%)`,
+    'clipModal.playPause': 'Play/Pause',
+    'clipModal.mute': 'Mute',
+    'clipModal.unmute': 'Unmute',
+    'clipModal.setStart': 'In',
+    'clipModal.setEnd': 'Out',
+    'clipModal.toggleLoop': 'Toggle Loop',
+    'clipModal.loop': 'Loop',
+    'clipModal.clearClip': 'Clear Clip',
+    'clipModal.cancel': 'Cancel',
+    'clipModal.save': 'Save',
+    'clipModal.previewUnavailable': 'Preview unavailable — drag the handles to choose a range',
 
     // DownloadPanel.jsx
     'panel.format': 'Format',
@@ -95,10 +113,25 @@ export const dict = {
     'queue.state.failed': '失敗',
     'queue.total': ({ size }) => `共 ${size}`,
     'queue.remove': '從佇列移除',
+    'queue.clip': '剪輯影片片段',
     'platform.youtube': 'YouTube',
     'platform.twitch': 'Twitch',
     'platform.twitter': 'X',
     'platform.generic': '影片',
+
+    'clipModal.title': '剪輯影片片段',
+    'clipModal.selected': ({ duration, percent }) => `已選取 ${duration} 秒（${percent}%）`,
+    'clipModal.playPause': '播放／暫停',
+    'clipModal.mute': '靜音',
+    'clipModal.unmute': '取消靜音',
+    'clipModal.setStart': '起點',
+    'clipModal.setEnd': '終點',
+    'clipModal.toggleLoop': '切換循環播放',
+    'clipModal.loop': '循環',
+    'clipModal.clearClip': '清除剪輯',
+    'clipModal.cancel': '取消',
+    'clipModal.save': '儲存',
+    'clipModal.previewUnavailable': '無法預覽 — 請拖曳把手選擇範圍',
 
     'panel.format': '格式',
     'panel.fetching': '正在擷取影片資訊…',
