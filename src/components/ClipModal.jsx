@@ -54,6 +54,16 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
   draggingThumbRef.current = draggingThumb
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
+  // Loop mode replays [trimStart, trimEnd] on natural playback, but a
+  // manual seek (click or playhead drag) past trimEnd is deliberate --
+  // the user is checking whether to extend the selection, not asking to
+  // be bounced back to the start. Set true whenever a manual seek lands
+  // outside the range, false once one lands back inside it; onTimeUpdate
+  // only auto-loops while this is false, so playback that's already
+  // outside the range on its own (dragged there, or left playing past
+  // the boundary) is never forced back. Same fix as sorai-toolkit-converter's
+  // TrimModal.jsx.
+  const suppressLoopRef = useRef(false)
 
   const degraded = !item?.metadata?.previewUrl || previewFailed
 
@@ -73,6 +83,7 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
     setDuration(itemDuration)
     setTrimStart(item.clipStart ?? 0)
     setTrimEnd(item.clipEnd ?? itemDuration)
+    suppressLoopRef.current = false
 
     const previewUrl = item.metadata?.previewUrl
     if (previewUrl) {
@@ -143,7 +154,7 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
 
     const onTimeUpdate = (e) => {
       const p = e.target
-      if (isLoopingRef.current) {
+      if (isLoopingRef.current && !suppressLoopRef.current) {
         if (p.currentTime >= trimEndRef.current) {
           p.currentTime = trimStartRef.current
           p.play().catch(() => {})
@@ -189,6 +200,7 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
       let sec = getSecondsFromX(e.clientX)
 
       if (dragging === 'playhead') {
+        suppressLoopRef.current = sec > trimEndRef.current
         if (activePlayerRef.current) activePlayerRef.current.currentTime = sec
         return
       }
@@ -224,6 +236,7 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
     let pct = (e.clientX - rect.left) / rect.width
     pct = Math.max(0, Math.min(1, pct))
     const sec = duration > 0 ? pct * duration : 0
+    suppressLoopRef.current = sec > trimEnd
     if (activePlayerRef.current) activePlayerRef.current.currentTime = sec
   }
 
@@ -232,6 +245,7 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
     let sec = activePlayerRef.current.currentTime
     if (sec > trimEnd) sec = trimEnd
     setTrimStart(sec)
+    suppressLoopRef.current = false
   }
 
   const handleSetEnd = () => {
@@ -239,6 +253,7 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
     let sec = activePlayerRef.current.currentTime
     if (sec < trimStart) sec = trimStart
     setTrimEnd(sec)
+    suppressLoopRef.current = false
   }
 
   const handleVolumeChange = (e) => {
@@ -281,6 +296,7 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
   const handleClear = () => {
     setTrimStart(0)
     setTrimEnd(duration)
+    suppressLoopRef.current = false
     if (onClear) onClear()
   }
 
