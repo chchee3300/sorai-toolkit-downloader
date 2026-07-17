@@ -20,6 +20,13 @@ function formatClipLabel(seconds) {
   return seconds.toFixed(1) + 's'
 }
 
+// Magnet-snap radius for dragging a trim thumb onto the playhead, in
+// screen pixels (not seconds) so it feels the same regardless of the
+// clip's duration or the slider's current width -- same convention as
+// Premiere's own snap radius. Same constant as sorai-toolkit-converter's
+// TrimModal.jsx.
+const SNAP_PX = 8
+
 export default function ClipModal({ open, item, onClose, onSave, onClear }) {
   const { t } = useTranslation()
   const vidRef = useRef(null)
@@ -64,6 +71,14 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
   // the boundary) is never forced back. Same fix as sorai-toolkit-converter's
   // TrimModal.jsx.
   const suppressLoopRef = useRef(false)
+  // Premiere-style magnet snap: wherever the playhead sits when a trim
+  // thumb drag starts is captured once (thumb mousedown) as a fixed
+  // target, not re-read live during the drag -- dragging a thumb also
+  // seeks the preview to follow it (see the bottom of onMouseMove below),
+  // so a live read would just always equal the thumb's own position and
+  // never actually snap to anything. null when no target is armed (drag
+  // didn't start from a thumb, or there's no active player yet).
+  const snapTargetRef = useRef(null)
 
   const degraded = !item?.metadata?.previewUrl || previewFailed
 
@@ -205,6 +220,14 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
         return
       }
 
+      if (snapTargetRef.current !== null) {
+        const rect = sliderContainerRef.current.getBoundingClientRect()
+        const pxPerSec = durationRef.current > 0 ? rect.width / durationRef.current : 0
+        if (pxPerSec > 0 && Math.abs(sec - snapTargetRef.current) * pxPerSec <= SNAP_PX) {
+          sec = snapTargetRef.current
+        }
+      }
+
       if (dragging === 'left') {
         if (sec > trimEndRef.current) sec = trimEndRef.current
         setTrimStart(sec)
@@ -218,6 +241,7 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
 
     const onMouseUp = () => {
       if (draggingThumbRef.current) setDraggingThumb(null)
+      snapTargetRef.current = null
     }
 
     window.addEventListener('mousemove', onMouseMove)
@@ -413,7 +437,11 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
                       id="clip-thumb-left"
                       ref={thumbLeftRef}
                       style={{ left: `${pctStart}%` }}
-                      onMouseDown={(e) => { setDraggingThumb('left'); e.preventDefault() }}
+                      onMouseDown={(e) => {
+                        setDraggingThumb('left')
+                        snapTargetRef.current = activePlayerRef.current ? activePlayerRef.current.currentTime : null
+                        e.preventDefault()
+                      }}
                     >
                       <div className="thumb-grip"></div>
                     </div>
@@ -422,7 +450,11 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
                       id="clip-thumb-right"
                       ref={thumbRightRef}
                       style={{ left: `${pctEnd}%` }}
-                      onMouseDown={(e) => { setDraggingThumb('right'); e.preventDefault() }}
+                      onMouseDown={(e) => {
+                        setDraggingThumb('right')
+                        snapTargetRef.current = activePlayerRef.current ? activePlayerRef.current.currentTime : null
+                        e.preventDefault()
+                      }}
                     >
                       <div className="thumb-grip"></div>
                     </div>
