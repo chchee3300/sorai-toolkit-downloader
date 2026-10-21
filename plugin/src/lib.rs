@@ -1,9 +1,11 @@
 use tauri::{
   plugin::{Builder, TauriPlugin},
-  AppHandle, Runtime,
+  AppHandle, Manager, Runtime,
 };
 use tauri_plugin_shell::ShellExt;
 
+pub mod download;
+mod jobs;
 pub mod metadata;
 
 /// Plugin name: JS calls commands as `plugin:sorai-downloader|<command>`,
@@ -40,10 +42,32 @@ async fn fetch_metadata<R: Runtime>(app: AppHandle<R>, url: String) -> Result<me
   metadata::parse_metadata_json(&String::from_utf8_lossy(&out.stdout))
 }
 
+/// Starts one yt-dlp download; returns its job id right away. Progress /
+/// log lines / exactly one `finished` arrive on `on_event`.
+#[tauri::command]
+fn start_download<R: Runtime>(
+  app: AppHandle<R>,
+  job: download::DownloadJob,
+  on_event: tauri::ipc::Channel<jobs::JobEvent>,
+) -> Result<u32, String> {
+  jobs::start(&app, &job, on_event)
+}
+
+/// Kills the job's whole process tree; `finished { cancelled }` follows
+/// within jobs::CANCEL_GRACE even if the process never reports its exit.
+#[tauri::command]
+fn cancel_download<R: Runtime>(app: AppHandle<R>, job_id: u32) {
+  jobs::cancel(&app, job_id)
+}
+
 /// Registered by the hub: `.plugin(tauri_plugin_sorai_downloader::init())`.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
   Builder::new(NAME)
-    .invoke_handler(tauri::generate_handler![ping, fetch_metadata])
+    .invoke_handler(tauri::generate_handler![ping, fetch_metadata, start_download, cancel_download])
+    .setup(|app, _| {
+      app.manage(jobs::Jobs::default());
+      Ok(())
+    })
     .build()
 }
 

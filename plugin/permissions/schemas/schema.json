@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the cancel_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancel-download",
+          "markdownDescription": "Enables the cancel_download command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancel-download",
+          "markdownDescription": "Denies the cancel_download command without any pre-configured scope."
+        },
+        {
           "description": "Enables the fetch_metadata command without any pre-configured scope.",
           "type": "string",
           "const": "allow-fetch-metadata",
@@ -319,10 +331,22 @@
           "markdownDescription": "Denies the ping command without any pre-configured scope."
         },
         {
-          "description": "Allows every command this plugin exposes.\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-fetch-metadata`",
+          "description": "Enables the start_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-download",
+          "markdownDescription": "Enables the start_download command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_download command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-download",
+          "markdownDescription": "Denies the start_download command without any pre-configured scope."
+        },
+        {
+          "description": "Allows every command this plugin exposes.\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-fetch-metadata`\n- `allow-start-download`\n- `allow-cancel-download`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows every command this plugin exposes.\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-fetch-metadata`"
+          "markdownDescription": "Allows every command this plugin exposes.\n#### This default permission set includes:\n\n- `allow-ping`\n- `allow-fetch-metadata`\n- `allow-start-download`\n- `allow-cancel-download`"
         }
       ]
     }

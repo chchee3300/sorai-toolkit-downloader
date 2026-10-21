@@ -6,6 +6,8 @@ Allows every command this plugin exposes.
 
 - `allow-ping`
 - `allow-fetch-metadata`
+- `allow-start-download`
+- `allow-cancel-download`
 
 ## Permission Table
 
@@ -15,6 +17,32 @@ Allows every command this plugin exposes.
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`sorai-downloader:allow-cancel-download`
+
+</td>
+<td>
+
+Enables the cancel_download command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`sorai-downloader:deny-cancel-download`
+
+</td>
+<td>
+
+Denies the cancel_download command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>
@@ -64,6 +92,32 @@ Enables the ping command without any pre-configured scope.
 <td>
 
 Denies the ping command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`sorai-downloader:allow-start-download`
+
+</td>
+<td>
+
+Enables the start_download command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`sorai-downloader:deny-start-download`
+
+</td>
+<td>
+
+Denies the start_download command without any pre-configured scope.
 
 </td>
 </tr>

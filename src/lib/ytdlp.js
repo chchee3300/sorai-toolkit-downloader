@@ -1,12 +1,8 @@
-// Pure command-building + output-parsing helpers for yt-dlp -- this
-// repo's own business logic (analogous to sorai-toolkit-converter's
-// ffmpeg-commands.js/progress-parser.js), not a shared runtime global.
-// ytdlpPath/ffmpegPath themselves come from the host's platform.js
-// (window.EstellaLib.platform) since binary *location* is cross-tool infra,
-// but *how yt-dlp is invoked* is this tool's own concern.
-
+// Display-only yt-dlp helpers (platform badge, size/duration/quality labels).
 // Metadata fetch/parsing (format classification, preview URL, best-format
 // defaults) lives in Rust: plugin/src/metadata.rs, via fetchMetadata().
+// Download argv (format selector, merge, clip, progress template) and
+// progress parsing too: plugin/src/download.rs, via startDownload().
 
 // Detects which known platform a URL belongs to, for display purposes only
 // (a small badge on the queue row) -- NOT a gate on what can be added.
@@ -77,81 +73,4 @@ export function audioFormatOptionLabel(f) {
 // video-only, no separate audio line since it's one file either way.
 export function combinedFormatOptionLabel(f) {
   return [videoQualityLabel(f.height), f.ext, formatBytes(f.filesize)].filter(Boolean).join(' · ')
-}
-
-// Builds the yt-dlp -f selector from independent video/audio picks. "+"
-// merges the two streams (yt-dlp shells out to --ffmpeg-location's ffmpeg
-// to mux them); "," downloads both as separate files with no merge step.
-export function buildFormatSelector({ includeVideo, includeAudio, videoFormatId, audioFormatId, autoMerge }) {
-  if (includeVideo && includeAudio) {
-    return autoMerge ? `${videoFormatId}+${audioFormatId}` : `${videoFormatId},${audioFormatId}`
-  }
-  if (includeVideo) return videoFormatId
-  if (includeAudio) return audioFormatId
-  return ''
-}
-
-const PROGRESS_PREFIX = 'DLPROGRESS|'
-
-// --progress-template's percent/eta/speed fields are yt-dlp's own display
-// strings (e.g. " 42.3%", "01:23", "3.10MiB/s") -- --no-colors keeps them
-// free of ANSI escapes so a plain regex can pull the fields back out,
-// mirroring progress-parser.js's regex-based extraction from ffmpeg's
-// stderr in sorai-toolkit-converter.
-export function buildProgressTemplateArg() {
-  return `download:${PROGRESS_PREFIX}%(progress._percent_str)s|%(progress._eta_str)s|%(progress._speed_str)s`
-}
-
-export function parseDownloadProgress(chunk) {
-  const idx = chunk.indexOf(PROGRESS_PREFIX)
-  if (idx === -1) return null
-  const line = chunk.slice(idx + PROGRESS_PREFIX.length)
-  const match = line.match(/^\s*([\d.]+)%\|([^|]*)\|([^\r\n]*)/)
-  if (!match) return null
-  const percent = parseFloat(match[1])
-  // --download-sections hands the clipped range to ffmpeg for the actual
-  // cut, and yt-dlp's own percent field can go missing/"N/A" during that
-  // phase -- Number.isFinite screens that out so the UI just stays on
-  // "Starting…" instead of rendering NaN%.
-  if (!Number.isFinite(percent)) return null
-  return {
-    percent,
-    eta: match[2].trim(),
-    speed: match[3].trim(),
-  }
-}
-
-// --ffmpeg-location accepts either the ffmpeg binary path itself or its
-// containing directory -- the binary path (from platform.js's
-// ffmpegPath()) works directly, no need to strip it down to a directory.
-//
-// mergeToMp4 forces the merged container to mp4 (yt-dlp's default merge
-// container otherwise depends on the source formats and often lands on
-// mkv). noMergeSelector marks the "v,a" comma-selector case: yt-dlp
-// downloads both streams as separate files with no ffmpeg step, so an
-// explicit -o template embeds the format id in each filename -- otherwise
-// two same-titled outputs (e.g. same ext family) could collide, and even
-// without collision the user would otherwise have no way to tell which
-// file is which.
-export function buildDownloadCommand({ ytdlpPath, ffmpegPath, url, formatSelector, outputDir, mergeToMp4, noMergeSelector, clipStart, clipEnd }) {
-  const hasClip = typeof clipStart === 'number' && typeof clipEnd === 'number' && clipEnd > clipStart
-  const parts = [
-    `"${ytdlpPath}"`,
-    `-f "${formatSelector}"`,
-    '--no-playlist',
-    `--ffmpeg-location "${ffmpegPath}"`,
-    mergeToMp4 ? '--merge-output-format mp4' : null,
-    // --force-keyframes-at-cuts makes ffmpeg re-encode around the cut points
-    // so the range lands on exact seconds instead of the nearest keyframe --
-    // slower, but the length tolerance ClipModal promises depends on it.
-    hasClip ? `--download-sections "*${clipStart.toFixed(2)}-${clipEnd.toFixed(2)}"` : null,
-    hasClip ? '--force-keyframes-at-cuts' : null,
-    `-P "${outputDir}"`,
-    noMergeSelector ? `-o "%(title)s [%(format_id)s].%(ext)s"` : null,
-    '--newline',
-    '--no-colors',
-    `--progress-template "${buildProgressTemplateArg()}"`,
-    `"${url}"`,
-  ]
-  return parts.filter(Boolean).join(' ')
 }

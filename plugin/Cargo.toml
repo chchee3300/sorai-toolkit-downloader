@@ -11,7 +11,7 @@ links = "tauri-plugin-sorai-downloader"
 tauri = "2.12"
 # Sidecars (yt-dlp, ffmpeg) are declared and bundled by the host app; we only
 # call them by name through the shell plugin the host registers.
-tauri-plugin-shell = "2"
+tauri-plugin-shell = "2.5" # set_process_group (job object kill) is new in 2.5
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

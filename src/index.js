@@ -4,7 +4,7 @@
 // NOT import index.css/resources/styles.css -- this component's classNames
 // key into the shared stylesheet the hub already loads itself. It also does
 // NOT import resources/js/lib/platform.js or liquid-glass.js -- those are
-// runtime globals (window.EstellaLib.platform, window.LiquidSelect) the
+// runtime globals (window.EstellaLib.i18n, window.LiquidSelect) the
 // host app is responsible for loading before mounting this component,
 // exactly like sorai-toolkit-converter.
 export { default as DownloaderApp } from './App.jsx'

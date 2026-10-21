@@ -1,83 +1,29 @@
 import { useCallback, useRef, useState } from 'react'
-import {
-  buildDownloadCommand,
-  parseDownloadProgress,
-  buildFormatSelector,
-  detectPlatform,
-} from '../lib/ytdlp.js'
-import { fetchMetadata } from '../plugin.js'
+import { detectPlatform } from '../lib/ytdlp.js'
+import { fetchMetadata, startDownload, cancelDownload } from '../plugin.js'
 import { tNow } from '../i18n/dict.js'
 
-// Ported from sorai-toolkit-converter's useExecute.js's runCommandWithLogs --
-// same spawnProcess + 'spawnedProcess' event pattern. Generic/stateless per
-// call, so it's reused once per queue item rather than once per app lifetime.
-function runCommandWithLogs(command, onProgress, spawnedIdRef, cancelRequestedRef) {
+// One plugin download job as a promise: resolves on success, rejects on
+// failure/cancel. The Rust runner guarantees exactly one 'finished' (with a
+// timeout backstop after cancel), so no JS-side cancel guard is needed.
+// jobIdRef holds the live job id for cancel(); a cancel requested before the
+// id came back is applied as soon as it does.
+function runDownload(job, onProgress, jobIdRef, cancelRequestedRef) {
   return new Promise((resolve, reject) => {
-    ;(async () => {
-      try {
-        const processInfo = await window.Neutralino.os.spawnProcess(command)
-        const pid = processInfo.id
-        spawnedIdRef.current = pid
-        if (cancelRequestedRef.current) {
-          window.Neutralino.os.updateSpawnedProcess(pid, 'exit').catch(() => {})
-        }
-        const handler = (evt) => {
-          if (evt.detail.id !== pid) return
-          if (evt.detail.action === 'stdOut' || evt.detail.action === 'stdErr') {
-            onProgress(evt.detail.data)
-          }
-          if (evt.detail.action === 'exit') {
-            window.Neutralino.events.off('spawnedProcess', handler)
-            spawnedIdRef.current = null
-            if (Number(evt.detail.data) === 0) resolve()
-            else reject(new Error('Exit code ' + evt.detail.data))
-          }
-        }
-        window.Neutralino.events.on('spawnedProcess', handler)
-      } catch (e) {
-        reject(e)
+    let finished = false
+    startDownload(job, (msg) => {
+      if (msg.event === 'progress') onProgress(msg)
+      else if (msg.event === 'finished') {
+        finished = true
+        jobIdRef.current = null
+        if (msg.ok) resolve()
+        else reject(new Error(msg.cancelled ? 'Cancelled' : msg.error))
       }
-    })()
-  })
-}
-
-// Ported from sorai-toolkit-converter's useExecute.js's awaitWithCancelGuard --
-// safety backstop for cancel(): a forced kill (Neutralino.os.updateSpawnedProcess
-// with 'exit') isn't guaranteed to fire the spawnedProcess 'exit' event
-// promptly, or at all, on every platform -- without this, runCommandWithLogs's
-// promise could hang forever and leave the queue stuck on "Cancelling...".
-// Once cancelRequestedRef flips true (checked here via a lightweight poll,
-// since cancellation can happen at any point during the awaited command, not
-// just at call time), arm a timeout; if it fires first, reject so the
-// caller's existing catch block treats this the same as any other
-// cancelled-item outcome. Resolves/rejects exactly once, whichever comes first.
-function awaitWithCancelGuard(promise, cancelRequestedRef, timeoutMs = 3000) {
-  return new Promise((resolve, reject) => {
-    let settled = false
-    let deadlineTimer = null
-    const settle = (fn, value) => {
-      if (settled) return
-      settled = true
-      clearTimeout(deadlineTimer)
-      clearInterval(pollInterval)
-      fn(value)
-    }
-    promise.then(
-      (v) => settle(resolve, v),
-      (e) => settle(reject, e),
-    )
-    const armDeadline = () => {
-      if (deadlineTimer) return
-      deadlineTimer = setTimeout(
-        () => settle(reject, new Error('Cancelled (timed out waiting for process exit)')),
-        timeoutMs,
-      )
-    }
-    if (cancelRequestedRef.current) armDeadline()
-    const pollInterval = setInterval(() => {
-      if (settled) return
-      if (cancelRequestedRef.current) armDeadline()
-    }, 100)
+    }).then((id) => {
+      if (finished) return
+      jobIdRef.current = id
+      if (cancelRequestedRef.current) cancelDownload(id).catch(() => {})
+    }, reject)
   })
 }
 
@@ -110,7 +56,7 @@ export function useDownloader() {
   const [status, setStatus] = useState({ key: 'status.ready', params: undefined, state: 'ready' })
 
   const cancelRequestedRef = useRef(false)
-  const currentSpawnedIdRef = useRef(null)
+  const currentJobIdRef = useRef(null)
   const idCounterRef = useRef(0)
   const genId = () => 'q' + (idCounterRef.current++)
 
@@ -225,9 +171,7 @@ export function useDownloader() {
     const target = itemsRef.current.find((it) => it.id === id)
     if (target && target.downloadState === 'downloading') {
       cancelRequestedRef.current = true
-      if (currentSpawnedIdRef.current != null) {
-        window.Neutralino.os.updateSpawnedProcess(currentSpawnedIdRef.current, 'exit').catch(() => {})
-      }
+      if (currentJobIdRef.current != null) cancelDownload(currentJobIdRef.current).catch(() => {})
     }
     // selectedItemId is intentionally left untouched here -- App.jsx derives
     // the displayed item with a fallback (items.find(...) || items[0]), so
@@ -244,15 +188,14 @@ export function useDownloader() {
     const running = itemsRef.current.some((it) => it.downloadState === 'downloading')
     if (running) {
       cancelRequestedRef.current = true
-      if (currentSpawnedIdRef.current != null) {
-        window.Neutralino.os.updateSpawnedProcess(currentSpawnedIdRef.current, 'exit').catch(() => {})
-      }
+      if (currentJobIdRef.current != null) cancelDownload(currentJobIdRef.current).catch(() => {})
     }
     setItemsAndRef([])
   }, [setItemsAndRef])
 
   const browseForOutputFolder = useCallback(async () => {
-    const entry = await window.Neutralino.os.showFolderDialog('Select Download Folder')
+    // Hub's central dialog module (looked up at call time so E2E can stub it).
+    const entry = await window.SoraiDialogs.openFolder({ title: 'Select Download Folder' })
     if (entry) setOutputPath(entry)
   }, [])
 
@@ -260,9 +203,7 @@ export function useDownloader() {
     if (!queueRunning || cancelRequestedRef.current) return
     cancelRequestedRef.current = true
     setStatus({ key: 'status.cancelling', state: 'busy' })
-    if (currentSpawnedIdRef.current != null) {
-      window.Neutralino.os.updateSpawnedProcess(currentSpawnedIdRef.current, 'exit').catch(() => {})
-    }
+    if (currentJobIdRef.current != null) cancelDownload(currentJobIdRef.current).catch(() => {})
   }, [queueRunning])
 
   // Sequential queue processor, modeled on sorai-toolkit-converter's
@@ -302,59 +243,35 @@ export function useDownloader() {
       setStatus({ key: 'status.downloading', params: { done: doneCount, total: totalPending }, state: 'busy' })
       patchItem(item.id, { downloadState: 'downloading', progressPercent: 0, progressText: tNow('progress.starting') })
 
-      // Combined-mode formats are already muxed -- a single format id, no
-      // video+audio selector building and no merge step at all.
-      let formatSelector, mergeToMp4, noMergeSelector
-      if (item.mode === 'combined') {
-        formatSelector = item.selectedCombinedFormatId
-        mergeToMp4 = false
-        noMergeSelector = false
-      } else {
-        const bothIncluded = item.includeVideo && item.includeAudio
-        formatSelector = buildFormatSelector({
-          includeVideo: item.includeVideo,
-          includeAudio: item.includeAudio,
-          videoFormatId: item.selectedVideoFormatId,
-          audioFormatId: item.selectedAudioFormatId,
-          autoMerge: item.autoMerge,
-        })
-        mergeToMp4 = bothIncluded && item.autoMerge
-        noMergeSelector = bothIncluded && !item.autoMerge
+      // Selector / merge / split-file naming / clip args are built in Rust
+      // from these settings (plugin/src/download.rs).
+      const job = {
+        url: item.url,
+        outputDir: outputPath,
+        mode: item.mode,
+        videoFormatId: item.selectedVideoFormatId,
+        audioFormatId: item.selectedAudioFormatId,
+        combinedFormatId: item.selectedCombinedFormatId,
+        includeVideo: item.includeVideo,
+        includeAudio: item.includeAudio,
+        autoMerge: item.autoMerge,
+        clipStart: item.clipStart ?? null,
+        clipEnd: item.clipEnd ?? null,
       }
 
-      const platformLib = window.EstellaLib.platform
-      const binPath = platformLib.resolveBinPath()
-      const command = buildDownloadCommand({
-        ytdlpPath: platformLib.ytdlpPath(binPath),
-        ffmpegPath: platformLib.ffmpegPath(binPath),
-        url: item.url,
-        formatSelector,
-        outputDir: outputPath,
-        mergeToMp4,
-        noMergeSelector,
-        clipStart: item.clipStart,
-        clipEnd: item.clipEnd,
-      })
-
       try {
-        await awaitWithCancelGuard(
-          runCommandWithLogs(
-            command,
-            (chunk) => {
-              const progress = parseDownloadProgress(chunk)
-              if (progress) {
-                patchItem(item.id, {
-                  progressPercent: progress.percent,
-                  progressText:
-                    `${progress.percent.toFixed(1)}%` +
-                    (progress.speed && progress.speed !== 'NA' ? ` · ${progress.speed}` : '') +
-                    (progress.eta && progress.eta !== 'NA' ? ` · ETA ${progress.eta}` : ''),
-                })
-              }
-            },
-            currentSpawnedIdRef,
-            cancelRequestedRef,
-          ),
+        await runDownload(
+          job,
+          (progress) => {
+            patchItem(item.id, {
+              progressPercent: progress.percent,
+              progressText:
+                `${progress.percent.toFixed(1)}%` +
+                (progress.speed ? ` · ${progress.speed}` : '') +
+                (progress.eta ? ` · ETA ${progress.eta}` : ''),
+            })
+          },
+          currentJobIdRef,
           cancelRequestedRef,
         )
         patchItem(item.id, { downloadState: 'done', progressPercent: 100, progressText: tNow('progress.done') })
@@ -369,7 +286,7 @@ export function useDownloader() {
 
     const wasCancelled = cancelRequestedRef.current
     cancelRequestedRef.current = false
-    currentSpawnedIdRef.current = null
+    currentJobIdRef.current = null
     setQueueRunning(false)
     setStatus(wasCancelled ? { key: 'status.cancelled', state: 'ready' } : { key: 'status.complete', state: 'ready' })
   }, [outputPath, patchItem, queueRunning])
