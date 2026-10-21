@@ -3,3 +3,9 @@
 import { invoke } from '@tauri-apps/api/core'
 
 export const ping = (value) => invoke('plugin:sorai-downloader|ping', { value })
+
+// yt-dlp -j metadata, parsed in Rust (plugin/src/metadata.rs): { title,
+// thumbnail, duration, channel, videoFormats, audioFormats, combinedFormats,
+// previewUrl, bestVideoFormatId, bestAudioFormatId, bestCombinedFormatId }.
+// Rejects with yt-dlp's stderr text.
+export const fetchMetadata = (url) => invoke('plugin:sorai-downloader|fetch_metadata', { url })

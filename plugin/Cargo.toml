@@ -9,6 +9,11 @@ links = "tauri-plugin-sorai-downloader"
 
 [dependencies]
 tauri = "2.12"
+# Sidecars (yt-dlp, ffmpeg) are declared and bundled by the host app; we only
+# call them by name through the shell plugin the host registers.
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [build-dependencies]
 tauri-plugin = { version = "2.7", features = ["build"] }

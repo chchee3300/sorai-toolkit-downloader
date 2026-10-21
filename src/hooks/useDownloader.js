@@ -1,15 +1,11 @@
 import { useCallback, useRef, useState } from 'react'
 import {
-  buildMetadataCommand,
   buildDownloadCommand,
-  parseMetadataJson,
   parseDownloadProgress,
-  bestVideoFormatId,
-  bestAudioFormatId,
-  bestCombinedFormatId,
   buildFormatSelector,
   detectPlatform,
 } from '../lib/ytdlp.js'
+import { fetchMetadata } from '../plugin.js'
 import { tNow } from '../i18n/dict.js'
 
 // Ported from sorai-toolkit-converter's useExecute.js's runCommandWithLogs --
@@ -189,23 +185,17 @@ export function useDownloader() {
     setUrl('')
 
     try {
-      const platformLib = window.EstellaLib.platform
-      const binPath = platformLib.resolveBinPath()
-      const ytdlpPath = platformLib.ytdlpPath(binPath)
-      const command = buildMetadataCommand({ ytdlpPath, url: trimmedUrl })
-      const res = await window.Neutralino.os.execCommand(command)
-      if (res.exitCode !== 0) {
-        throw new Error(res.stdErr?.trim() || `yt-dlp exited with code ${res.exitCode}`)
-      }
-      const meta = parseMetadataJson(res.stdOut)
+      // Fetch + JSON parsing + best-format defaults all happen in Rust
+      // (plugin/src/metadata.rs); rejects with yt-dlp's stderr.
+      const meta = await fetchMetadata(trimmedUrl)
       const hasSplitStreams = meta.videoFormats.length > 0 || meta.audioFormats.length > 0
       patchItem(id, {
         metadata: meta,
         fetching: false,
         mode: hasSplitStreams ? 'split' : 'combined',
-        selectedVideoFormatId: bestVideoFormatId(meta.videoFormats),
-        selectedAudioFormatId: bestAudioFormatId(meta.audioFormats),
-        selectedCombinedFormatId: bestCombinedFormatId(meta.combinedFormats),
+        selectedVideoFormatId: meta.bestVideoFormatId,
+        selectedAudioFormatId: meta.bestAudioFormatId,
+        selectedCombinedFormatId: meta.bestCombinedFormatId,
         includeVideo: meta.videoFormats.length > 0,
         includeAudio: meta.audioFormats.length > 0,
         autoMerge: meta.videoFormats.length > 0 && meta.audioFormats.length > 0,

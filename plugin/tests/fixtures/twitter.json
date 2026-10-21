@@ -1,0 +1,14 @@
+{
+ "title": "Twitter post fixture",
+ "thumbnail": "https://pbs.twimg.com/thumb.jpg",
+ "duration": 12.3,
+ "uploader": "Some User",
+ "formats": [
+  {"format_id": "hls-audio-32000-Audio", "ext": "mp4", "vcodec": "none", "tbr": 32, "protocol": "m3u8_native", "url": "https://video.twimg.com/a32.m3u8"},
+  {"format_id": "hls-audio-128000-Audio", "ext": "mp4", "vcodec": "none", "tbr": 128, "protocol": "m3u8_native", "url": "https://video.twimg.com/a128.m3u8"},
+  {"format_id": "hls-256", "ext": "mp4", "vcodec": "avc1.4D401E", "acodec": "none", "height": 270, "tbr": 256, "protocol": "m3u8_native", "url": "https://video.twimg.com/v256.m3u8"},
+  {"format_id": "hls-2176", "ext": "mp4", "vcodec": "avc1.640020", "acodec": "none", "height": 720, "tbr": 2176, "protocol": "m3u8_native", "url": "https://video.twimg.com/v2176.m3u8"},
+  {"format_id": "http-256", "ext": "mp4", "height": 270, "tbr": 256, "protocol": "https", "url": "https://video.twimg.com/v256.mp4"},
+  {"format_id": "http-2176", "ext": "mp4", "height": 720, "tbr": 2176, "protocol": "https", "url": "https://video.twimg.com/v2176.mp4"}
+ ]
+}
