@@ -8,3 +8,6 @@
 // host app is responsible for loading before mounting this component,
 // exactly like sorai-toolkit-converter.
 export { default as DownloaderApp } from './App.jsx'
+
+// Tauri plugin guest bindings (invoke wrappers for plugin/'s commands).
+export * from './plugin.js'
