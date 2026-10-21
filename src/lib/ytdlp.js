@@ -5,122 +5,8 @@
 // (window.EstellaLib.platform) since binary *location* is cross-tool infra,
 // but *how yt-dlp is invoked* is this tool's own concern.
 
-// One JSON call gets title/thumbnail/duration/formats together -- avoids a
-// second `-F` call that would mean re-parsing yt-dlp's human-readable
-// table instead of structured JSON. --no-playlist: playlist URLs are
-// treated as "first video only" for v1 (known limitation, not solved now).
-export function buildMetadataCommand({ ytdlpPath, url }) {
-  return `"${ytdlpPath}" -j --no-playlist "${url}"`
-}
-
-// vcodec/acodec classification follows yt-dlp's OWN convention, not an
-// "absent means none" assumption: a format lacks a stream ONLY when yt-dlp
-// explicitly says so with the literal string 'none'. A missing/undefined
-// field means "unknown, assume present" -- yt-dlp's own bestvideo+bestaudio
-// selector logic works the same way. This matters a lot in practice:
-// verified against real yt-dlp -j output, Twitch clips never populate
-// vcodec/acodec on ANY format (they're single pre-muxed HLS renditions,
-// confirmed by having neither key at all) -- treating that as "no video AND
-// no audio" the old `f.vcodec || 'none'` fallback did silently threw away
-// every single format Twitch offers. Twitter/X formats are more mixed: HLS
-// audio-only entries set vcodec:'none' explicitly but omit acodec entirely,
-// and there are also genuine combined progressive ("http-*") formats with
-// neither key set alongside separate hls video-only/hls-audio-only ones.
-const isNone = (v) => v === 'none'
-const hasVideo = (f) => !isNone(f.vcodec)
-const hasAudio = (f) => !isNone(f.acodec)
-
-// Storyboards (vcodec+acodec both explicitly "none") and mhtml containers
-// are yt-dlp housekeeping entries, not real download candidates. webm is
-// excluded site-wide per product decision (avoids a third container family
-// showing up across the pickers).
-const isStoryboard = (f) => (isNone(f.vcodec) && isNone(f.acodec)) || f.ext === 'mhtml'
-const isWebm = (f) => f.ext === 'webm'
-// Twitch-specific: clips recorded/cropped for mobile also get a
-// "portrait-<height>" format_id alongside the regular "<height>" one at the
-// same tier (verified against real yt-dlp -j output) -- a redundant
-// vertical-crop duplicate of the same landscape clip, not a distinct
-// quality option, so drop it rather than clutter the picker with look-alike
-// entries at the same height.
-const isPortraitVariant = (f) => /^portrait-/i.test(f.formatId)
-const isVideoOnly = (f) => hasVideo(f) && !hasAudio(f)
-const isAudioOnly = (f) => hasAudio(f) && !hasVideo(f)
-// Neither field explicitly excludes its stream -- e.g. Twitch's HLS
-// renditions, Twitter's "http-*" progressive formats -- so treat it as
-// already-muxed: one format, no merge needed. Not the same as "unknown";
-// see the block comment above for why undefined defaults to "present".
-const isCombined = (f) => hasVideo(f) && hasAudio(f)
-
-// Picks a single progressive (already-muxed) stream to feed a <video> tag
-// for ClipModal's preview player -- must come from the RAW data.formats
-// (parseMetadataJson's `mapped` array drops `url` entirely, since normal
-// download flow only ever needs a format_id for yt-dlp's own -f selector).
-// Only http(s) direct file URLs work here: m3u8/dash manifests aren't
-// something a bare <video src> can play, and mhtml is a storyboard, not
-// video. Prefers mp4 near 480p (small enough to load fast, big enough to
-// judge a crop by) over other mp4s over any other combined format; returns
-// null when nothing qualifies so callers fall back to the thumbnail+timeline
-// degraded mode.
-export function pickPreviewUrl(rawFormats) {
-  const candidates = (rawFormats || []).filter((f) =>
-    typeof f.url === 'string' &&
-    /^https?:\/\//i.test(f.url) &&
-    f.vcodec && f.vcodec !== 'none' &&
-    f.acodec && f.acodec !== 'none' &&
-    f.ext !== 'mhtml' &&
-    (f.protocol === 'https' || f.protocol === 'http'),
-  )
-  if (candidates.length === 0) return null
-
-  const tier = (f) => {
-    if (f.ext === 'mp4') return typeof f.height === 'number' ? 0 : 1
-    return 2
-  }
-  const sorted = [...candidates].sort((a, b) => {
-    const ta = tier(a)
-    const tb = tier(b)
-    if (ta !== tb) return ta - tb
-    if (ta === 0) return Math.abs((a.height || 0) - 480) - Math.abs((b.height || 0) - 480)
-    return (a.height || 0) - (b.height || 0)
-  })
-  return sorted[0].url
-}
-
-export function parseMetadataJson(text) {
-  const data = JSON.parse(text.trim())
-  const mapped = (data.formats || [])
-    .filter((f) => f.format_id)
-    .map((f) => ({
-      formatId: f.format_id,
-      ext: f.ext || '',
-      height: typeof f.height === 'number' ? f.height : null,
-      abr: typeof f.abr === 'number' ? f.abr : (typeof f.tbr === 'number' ? f.tbr : null),
-      vcodec: f.vcodec ?? null,
-      acodec: f.acodec ?? null,
-      filesize: f.filesize || f.filesize_approx || null,
-    }))
-    .filter((f) => !isStoryboard(f) && !isWebm(f) && !isPortraitVariant(f))
-
-  const videoFormats = mapped.filter(isVideoOnly)
-  const audioFormats = mapped.filter(isAudioOnly)
-  // Only surfaced when there's nothing else to offer (see useDownloader.js's
-  // mode selection) -- when real separate streams exist (YouTube, and often
-  // Twitter/X) those give better quality control and stay the default UX;
-  // combined formats are the fallback for sources that never split streams
-  // at all (Twitch).
-  const combinedFormats = mapped.filter(isCombined)
-
-  return {
-    title: data.title || 'Untitled',
-    thumbnail: data.thumbnail || null,
-    duration: typeof data.duration === 'number' ? data.duration : null,
-    channel: data.channel || data.uploader || null,
-    videoFormats,
-    audioFormats,
-    combinedFormats,
-    previewUrl: pickPreviewUrl(data.formats),
-  }
-}
+// Metadata fetch/parsing (format classification, preview URL, best-format
+// defaults) lives in Rust: plugin/src/metadata.rs, via fetchMetadata().
 
 // Detects which known platform a URL belongs to, for display purposes only
 // (a small badge on the queue row) -- NOT a gate on what can be added.
@@ -191,34 +77,6 @@ export function audioFormatOptionLabel(f) {
 // video-only, no separate audio line since it's one file either way.
 export function combinedFormatOptionLabel(f) {
   return [videoQualityLabel(f.height), f.ext, formatBytes(f.filesize)].filter(Boolean).join(' · ')
-}
-
-// Best-quality default: sort explicitly by the numeric quality field rather
-// than trusting yt-dlp's implicit worst-to-best JSON ordering, since that
-// ordering is undocumented and we already have the numeric fields on hand.
-// filesize is a tiebreaker proxy for "less compressed" at the same tier.
-export function bestVideoFormatId(videoFormats) {
-  if (!videoFormats.length) return ''
-  const sorted = [...videoFormats].sort(
-    (a, b) => (b.height || 0) - (a.height || 0) || (b.filesize || 0) - (a.filesize || 0),
-  )
-  return sorted[0].formatId
-}
-
-export function bestAudioFormatId(audioFormats) {
-  if (!audioFormats.length) return ''
-  const sorted = [...audioFormats].sort(
-    (a, b) => (b.abr || 0) - (a.abr || 0) || (b.filesize || 0) - (a.filesize || 0),
-  )
-  return sorted[0].formatId
-}
-
-export function bestCombinedFormatId(combinedFormats) {
-  if (!combinedFormats.length) return ''
-  const sorted = [...combinedFormats].sort(
-    (a, b) => (b.height || 0) - (a.height || 0) || (b.filesize || 0) - (a.filesize || 0),
-  )
-  return sorted[0].formatId
 }
 
 // Builds the yt-dlp -f selector from independent video/audio picks. "+"
