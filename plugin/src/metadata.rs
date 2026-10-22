@@ -1,5 +1,5 @@
 //! `yt-dlp -j` metadata parsing: format classification, preview URL and
-//! best-quality defaults. Ported 1:1 from the Neutralino-era src/lib/ytdlp.js
+//! best-quality defaults. Ported 1:1 from the old JS src/lib/ytdlp.js
 //! (parseMetadataJson / pickPreviewUrl / best*FormatId) -- keep the rules in
 //! sync with the comments there if they ever change.
 

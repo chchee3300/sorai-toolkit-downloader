@@ -6,9 +6,9 @@ import { useTranslation } from '../hooks/useTranslation.js'
 // slider, but scoped to remote-video clipping (any yt-dlp source with a
 // known duration) instead of arbitrary local media files:
 // - No fileType/<audio> branch -- this tool only ever clips video.
-// - No Neutralino.server.mount/unmount -- the preview player streams
-//   directly from yt-dlp's own metadata (item.metadata.previewUrl), a
-//   remote URL, not a local file needing a dev-server mount.
+// - No asset-protocol scope -- the preview player streams directly from
+//   yt-dlp's own metadata (item.metadata.previewUrl), a remote URL, not a
+//   local file.
 // - Preview can fail (URL expired/IP-bound, or no progressive http(s)
 //   format at all for this source -- e.g. Twitch/most Twitter videos are
 //   HLS-only, so pickPreviewUrl() never finds a candidate) -- degraded mode

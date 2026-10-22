@@ -1,5 +1,5 @@
 //! yt-dlp download: format selector, argv and --progress-template parsing.
-//! Ported from the Neutralino-era src/lib/ytdlp.js (buildFormatSelector /
+//! Ported from the old JS src/lib/ytdlp.js (buildFormatSelector /
 //! buildDownloadCommand / parseDownloadProgress).
 
 use serde::{Deserialize, Serialize};

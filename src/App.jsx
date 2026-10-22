@@ -35,9 +35,8 @@ function QueueHeader({ count, onClearAll }) {
 // useTheme()/useUpdateChecker() here, same reasoning as
 // sorai-toolkit-converter's App.jsx: those are shell/hub-level concerns.
 // When consumed as a library by the hub (src/index.js), `App` is exported
-// as `DownloaderApp` and rendered inside the hub's own layout. Standalone
-// (`neu run` here via src/main.jsx) it's the same component with no
-// surrounding chrome.
+// as `DownloaderApp` and rendered inside the hub's own layout (this repo has
+// no standalone app: the plugin commands need the hub's Tauri runtime).
 function App() {
   const { t } = useTranslation()
   const {
