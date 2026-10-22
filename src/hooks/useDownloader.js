@@ -7,8 +7,8 @@ import { tNow } from '../i18n/dict.js'
 // failure/cancel. The Rust runner guarantees exactly one 'finished' (with a
 // timeout backstop after cancel), so no JS-side cancel guard is needed.
 // jobIdRef holds the live job id for cancel(); a cancel requested before the
-// id came back is applied as soon as it does.
-function runDownload(job, onProgress, jobIdRef, cancelRequestedRef) {
+// id came back (shouldCancel() true by then) is applied as soon as it does.
+function runDownload(job, onProgress, jobIdRef, shouldCancel) {
   return new Promise((resolve, reject) => {
     let finished = false
     startDownload(job, (msg) => {
@@ -22,7 +22,7 @@ function runDownload(job, onProgress, jobIdRef, cancelRequestedRef) {
     }).then((id) => {
       if (finished) return
       jobIdRef.current = id
-      if (cancelRequestedRef.current) cancelDownload(id).catch(() => {})
+      if (shouldCancel()) cancelDownload(id).catch(() => {})
     }, reject)
   })
 }
@@ -167,11 +167,12 @@ export function useDownloader() {
     patchItemSettings(id, patch)
   }, [patchItemSettings])
 
+  // Removing the item that's downloading cancels just that job; the queue
+  // moves on to the next pending item.
   const removeItem = useCallback((id) => {
     const target = itemsRef.current.find((it) => it.id === id)
-    if (target && target.downloadState === 'downloading') {
-      cancelRequestedRef.current = true
-      if (currentJobIdRef.current != null) cancelDownload(currentJobIdRef.current).catch(() => {})
+    if (target && target.downloadState === 'downloading' && currentJobIdRef.current != null) {
+      cancelDownload(currentJobIdRef.current).catch(() => {})
     }
     // selectedItemId is intentionally left untouched here -- App.jsx derives
     // the displayed item with a fallback (items.find(...) || items[0]), so
@@ -210,9 +211,9 @@ export function useDownloader() {
   // useExecute.js: one shared spawnedIdRef/cancelRequestedRef pair reused
   // across iterations (not concurrent), a per-item try/catch so one failure
   // doesn't abort the batch, and results written back onto the item by id.
-  // Iterates by live index against itemsRef.current.length (not a frozen
-  // snapshot) so an item added mid-run via addAndFetch is naturally picked
-  // up once the loop reaches its index.
+  // Each turn picks the first ready pending item from the live list by id
+  // (not by index: removing an earlier item would shift the array), so items
+  // added mid-run are picked up too. `seen`: each item runs at most once.
   const startQueue = useCallback(async () => {
     if (queueRunning || !outputPath) return
     setQueueRunning(true)
@@ -221,23 +222,21 @@ export function useDownloader() {
     let doneCount = 0
     setStatus({ key: 'status.downloading', params: { done: 1, total: totalPending }, state: 'busy' })
 
-    let index = 0
-    while (index < itemsRef.current.length) {
-      if (cancelRequestedRef.current) break
-      const item = itemsRef.current[index]
-      index++
-      if (!item || item.downloadState !== 'pending') continue
-      // Not yet fetched (still fetching, fetch failed, or no usable
-      // selection) -- skip for this run, stays 'pending'. Known v1
-      // limitation: click Start again once it's ready.
-      if (!item.metadata) continue
-      if (item.mode === 'combined') {
-        if (!item.selectedCombinedFormatId) continue
-      } else {
-        if (item.includeVideo && !item.selectedVideoFormatId) continue
-        if (item.includeAudio && !item.selectedAudioFormatId) continue
-        if (!item.includeVideo && !item.includeAudio) continue
-      }
+    // Not yet fetched (still fetching, fetch failed, or no usable
+    // selection) -- skipped for this run, stays 'pending'. Known v1
+    // limitation: click Start again once it's ready.
+    const ready = (it) =>
+      it.metadata &&
+      (it.mode === 'combined'
+        ? it.selectedCombinedFormatId
+        : (it.includeVideo || it.includeAudio) &&
+          (!it.includeVideo || it.selectedVideoFormatId) &&
+          (!it.includeAudio || it.selectedAudioFormatId))
+    const seen = new Set()
+    while (!cancelRequestedRef.current) {
+      const item = itemsRef.current.find((it) => !seen.has(it.id) && it.downloadState === 'pending' && ready(it))
+      if (!item) break
+      seen.add(item.id)
 
       doneCount++
       setStatus({ key: 'status.downloading', params: { done: doneCount, total: totalPending }, state: 'busy' })
@@ -272,7 +271,7 @@ export function useDownloader() {
             })
           },
           currentJobIdRef,
-          cancelRequestedRef,
+          () => cancelRequestedRef.current || !itemsRef.current.some((it) => it.id === item.id),
         )
         patchItem(item.id, { downloadState: 'done', progressPercent: 100, progressText: tNow('progress.done') })
       } catch (err) {

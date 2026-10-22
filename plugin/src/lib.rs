@@ -1,6 +1,6 @@
 use tauri::{
   plugin::{Builder, TauriPlugin},
-  AppHandle, Manager, Runtime,
+  AppHandle, Manager, RunEvent, Runtime,
 };
 pub mod download;
 mod jobs;
@@ -63,6 +63,12 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     .setup(|app, _| {
       app.manage(jobs::Jobs::default());
       Ok(())
+    })
+    // Every quit path (window close, tray Quit, app.exit, restart) ends here.
+    .on_event(|app, event| {
+      if let RunEvent::Exit = event {
+        app.state::<jobs::Jobs>().kill_all();
+      }
     })
     .build()
 }

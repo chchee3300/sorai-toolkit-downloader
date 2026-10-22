@@ -56,8 +56,6 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, job: &DownloadJob, channel: Channel
   let args = download::download_args(job, ffmpeg.as_deref())?;
   let (mut rx, child) = crate::sidecar::command(app, "yt-dlp")
     .args(args)
-    // Titles/paths in log and ERROR lines come out as UTF-8, not the console codepage.
-    .env("PYTHONIOENCODING", "utf-8")
     // Job object (Windows) / process group (Unix): kill() takes down the
     // PyInstaller onefile child and yt-dlp's ffmpeg too, not just the parent.
     .set_process_group(true)
@@ -86,12 +84,12 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, job: &DownloadJob, channel: Channel
           }
         }
         CommandEvent::Error(line) => {
+          errors.push(line.clone());
           let _ = channel.send(JobEvent::Log { line });
         }
-        CommandEvent::Terminated(t) => {
-          code = t.code;
-          break;
-        }
+        // No break: stdout/stderr are read on their own threads, so the final
+        // ERROR line can arrive after Terminated. rx closes once both are drained.
+        CommandEvent::Terminated(t) => code = t.code,
         _ => {}
       }
     }
@@ -110,6 +108,17 @@ pub fn start<R: Runtime>(app: &AppHandle<R>, job: &DownloadJob, channel: Channel
     }
   });
   Ok(id)
+}
+
+impl Jobs {
+  /// App exit: kill every running job's process tree and wait for it, so no
+  /// yt-dlp / ffmpeg outlives the app. No `finished` is sent (nobody listens).
+  pub fn kill_all(&self) {
+    let jobs: Vec<Job> = self.map.lock().unwrap().drain().map(|(_, j)| j).collect();
+    for child in jobs.into_iter().filter_map(|j| j.child) {
+      let _ = child.kill();
+    }
+  }
 }
 
 /// Unknown or already-cancelling ids are a no-op.

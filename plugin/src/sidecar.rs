@@ -24,8 +24,10 @@ pub fn bundled<R: Runtime>(app: &AppHandle<R>, name: &str) -> Option<PathBuf> {
 }
 
 /// Command for `name`: the bundled copy, else `name` from PATH.
+/// PYTHONIOENCODING: yt-dlp (Python) writes titles / paths / ERROR lines as
+/// UTF-8 instead of the console codepage (cp950 on zh-TW Windows); ffmpeg ignores it.
 pub fn command<R: Runtime>(app: &AppHandle<R>, name: &str) -> Command {
-  app.shell().command(bundled(app, name).unwrap_or_else(|| name.into()))
+  app.shell().command(bundled(app, name).unwrap_or_else(|| name.into())).env("PYTHONIOENCODING", "utf-8")
 }
 
 #[cfg(test)]
