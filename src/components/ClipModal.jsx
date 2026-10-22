@@ -30,6 +30,9 @@ const SNAP_PX = 8
 export default function ClipModal({ open, item, onClose, onSave, onClear }) {
   const { t } = useTranslation()
   const vidRef = useRef(null)
+  // Separate audio stream for a video-only preview (metadata.previewAudioUrl,
+  // e.g. YouTube without a JS runtime); it just follows the video element.
+  const audRef = useRef(null)
   const activePlayerRef = useRef(null)
   const sliderContainerRef = useRef(null)
   const thumbLeftRef = useRef(null)
@@ -87,9 +90,12 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
   useEffect(() => {
     if (!open || !item) return undefined
     const vid = vidRef.current
+    const aud = audRef.current
     setPreviewFailed(false)
     vid.pause()
     vid.removeAttribute('src')
+    aud.pause()
+    aud.removeAttribute('src')
 
     const itemDuration = item.metadata?.duration || 0
     setDuration(itemDuration)
@@ -103,12 +109,18 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
       vid.src = previewUrl
       vid.load()
       vid.volume = volume
+      const audioUrl = item.metadata?.previewAudioUrl
+      if (audioUrl) {
+        aud.src = audioUrl
+        aud.load()
+      }
     } else {
       activePlayerRef.current = null
     }
 
     return () => {
       vid.pause()
+      aud.pause()
       activePlayerRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,11 +205,30 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
     vid.addEventListener('play', onPlay)
     vid.addEventListener('pause', onPause)
     vid.addEventListener('error', onError)
+
+    // Mirror the video onto the separate audio stream (when it has a src).
+    // Everything else in this file drives the video only.
+    const aud = audRef.current
+    const hasAudio = () => aud.hasAttribute('src')
+    const sync = () => { if (hasAudio()) aud.currentTime = vid.currentTime }
+    const mirror = {
+      play: () => { if (hasAudio()) { sync(); aud.play().catch(() => {}) } },
+      pause: () => aud.pause(),
+      seeking: sync,
+      volumechange: () => { aud.volume = vid.volume; aud.muted = vid.muted },
+      ratechange: () => { aud.playbackRate = vid.playbackRate },
+      // Two independent streams drift; re-align when it gets audible.
+      timeupdate: () => { if (hasAudio() && !vid.paused && Math.abs(aud.currentTime - vid.currentTime) > 0.3) sync() },
+      waiting: () => aud.pause(),
+      playing: () => mirror.play(),
+    }
+    for (const [ev, fn] of Object.entries(mirror)) vid.addEventListener(ev, fn)
     return () => {
       vid.removeEventListener('timeupdate', onTimeUpdate)
       vid.removeEventListener('play', onPlay)
       vid.removeEventListener('pause', onPause)
       vid.removeEventListener('error', onError)
+      for (const [ev, fn] of Object.entries(mirror)) vid.removeEventListener(ev, fn)
     }
   }, [])
 
@@ -396,6 +427,7 @@ export default function ClipModal({ open, item, onClose, onSave, onClear }) {
               ref={vidRef}
               onClick={togglePlayPause}
             />
+            <audio id="clip-audio-player" ref={audRef} preload="auto" hidden />
             {degraded && item?.metadata?.thumbnail && (
               <img className="trim-player" src={item.metadata.thumbnail} alt="" style={{ opacity: 0.45 }} />
             )}

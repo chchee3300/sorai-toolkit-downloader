@@ -36,6 +36,8 @@ pub struct Metadata {
   pub audio_formats: Vec<Format>,
   pub combined_formats: Vec<Format>,
   pub preview_url: Option<String>,
+  /// Set only when `preview_url` is video-only (see `preview_urls`).
+  pub preview_audio_url: Option<String>,
   // Default picks ("" when the list is empty, same as the old JS).
   pub best_video_format_id: String,
   pub best_audio_format_id: String,
@@ -110,6 +112,32 @@ pub fn pick_preview_url(raw: &[Value]) -> Option<String> {
   c.first().and_then(|f| s(f, "url"))
 }
 
+/// (preview video URL, separate audio URL for ClipModal to play alongside).
+/// The audio is only set when the preview is video-only: the best direct
+/// audio-only stream, m4a over others (WebView2 plays both), non-drc on a tie.
+pub fn preview_urls(raw: &[Value]) -> (Option<String>, Option<String>) {
+  let video = pick_preview_url(raw);
+  let silent = video.as_deref().is_some_and(|u| {
+    raw.iter().any(|f| s(f, "url").as_deref() == Some(u) && s(f, "acodec").as_deref() == Some("none"))
+  });
+  if !silent {
+    return (video, None);
+  }
+  let mut a: Vec<&Value> = raw
+    .iter()
+    .filter(|f| {
+      s(f, "vcodec").as_deref() == Some("none")
+        && s(f, "acodec").is_some_and(|c| c != "none")
+        && matches!(s(f, "protocol").as_deref(), Some("https" | "http"))
+    })
+    .collect();
+  let m4a = |f: &Value| s(f, "ext").as_deref() != Some("m4a");
+  let drc = |f: &Value| s(f, "format_id").is_some_and(|id| id.ends_with("-drc"));
+  let abr = |f: &Value| n(f, "abr").unwrap_or(0.0);
+  a.sort_by(|x, y| m4a(x).cmp(&m4a(y)).then(abr(y).total_cmp(&abr(x))).then(drc(x).cmp(&drc(y))));
+  (video, a.first().and_then(|f| s(f, "url")))
+}
+
 // Highest `key` first, filesize as tiebreaker; stable, like Array.sort.
 fn best(list: &[Format], key: fn(&Format) -> Option<f64>) -> String {
   let mut v: Vec<&Format> = list.iter().collect();
@@ -140,6 +168,7 @@ pub fn parse_metadata_json(text: &str) -> Result<Metadata, String> {
   let video_formats = pick(|f| has_video(f) && !has_audio(f));
   let audio_formats = pick(|f| has_audio(f) && !has_video(f));
   let combined_formats = pick(|f| has_video(f) && has_audio(f));
+  let (preview_url, preview_audio_url) = preview_urls(&raw);
   Ok(Metadata {
     title: s(&data, "title").unwrap_or_else(|| "Untitled".into()),
     thumbnail: s(&data, "thumbnail"),
@@ -148,7 +177,8 @@ pub fn parse_metadata_json(text: &str) -> Result<Metadata, String> {
     best_video_format_id: best(&video_formats, |f| f.height),
     best_audio_format_id: best(&audio_formats, |f| f.abr),
     best_combined_format_id: best(&combined_formats, |f| f.height),
-    preview_url: pick_preview_url(&raw),
+    preview_url,
+    preview_audio_url,
     video_formats,
     audio_formats,
     combined_formats,
@@ -269,6 +299,30 @@ mod tests {
     assert_eq!(pick_preview_url(&both).as_deref(), Some("https://cdn/18"));
     // Audio-only alone gives nothing to look at.
     assert_eq!(pick_preview_url(&dash[..1]), None);
+  }
+
+  #[test]
+  fn video_only_preview_gets_a_separate_audio_stream() {
+    let f = |id: &str, ext: &str, vc: &str, ac: &str, abr: f64, proto: &str| {
+      serde_json::json!({"format_id": id, "ext": ext, "height": if vc == "none" { Value::Null } else { 480.into() },
+        "vcodec": vc, "acodec": ac, "abr": abr, "protocol": proto, "url": format!("https://cdn/{id}")})
+    };
+    let dash = vec![
+      f("233", "mp4", "none", "mp4a", 0.0, "m3u8_native"),
+      f("139", "m4a", "none", "mp4a.40.5", 49.0, "https"),
+      f("140-drc", "m4a", "none", "mp4a.40.2", 130.0, "https"),
+      f("140", "m4a", "none", "mp4a.40.2", 130.0, "https"),
+      f("251", "webm", "none", "opus", 140.0, "https"),
+      f("135", "mp4", "avc1", "none", 0.0, "https"),
+    ];
+    // m4a over webm, highest bitrate, the non-drc variant on a tie.
+    assert_eq!(preview_urls(&dash), (Some("https://cdn/135".into()), Some("https://cdn/140".into())));
+    // A combined preview already has sound: no separate audio.
+    let mut both = dash.clone();
+    both.push(f("18", "mp4", "avc1", "mp4a", 96.0, "https"));
+    assert_eq!(preview_urls(&both), (Some("https://cdn/18".into()), None));
+    // Video-only with no direct audio stream at all: silent preview.
+    assert_eq!(preview_urls(&dash[5..]), (Some("https://cdn/135".into()), None));
   }
 
   #[test]
