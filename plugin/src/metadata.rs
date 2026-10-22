@@ -74,21 +74,24 @@ fn keep(f: &Format) -> bool {
   !storyboard && f.ext != "webm" && !portrait
 }
 
-/// One progressive http(s) stream with explicit video+audio codecs for
-/// ClipModal's <video>; prefers mp4 nearest 480p, then other mp4, then any.
+/// One direct http(s) stream with an explicit video codec for ClipModal's
+/// <video>. Prefers video+audio; falls back to video-only (enough to pick a
+/// range -- YouTube without a JS runtime offers no progressive format at
+/// all, only DASH). Within each: mp4 nearest 480p, then other mp4, then any.
 pub fn pick_preview_url(raw: &[Value]) -> Option<String> {
+  let codec = |f: &Value, k| s(f, k).filter(|c| c != "none");
   let mut c: Vec<&Value> = raw
     .iter()
     .filter(|f| {
       let url = s(f, "url").unwrap_or_default().to_ascii_lowercase();
-      let codec_ok = |k| s(f, k).is_some_and(|c| c != "none");
       (url.starts_with("http://") || url.starts_with("https://"))
-        && codec_ok("vcodec")
-        && codec_ok("acodec")
+        && codec(f, "vcodec").is_some()
+        && (codec(f, "acodec").is_some() || s(f, "acodec").as_deref() == Some("none"))
         && s(f, "ext").as_deref() != Some("mhtml")
         && matches!(s(f, "protocol").as_deref(), Some("https" | "http"))
     })
     .collect();
+  let video_only = |f: &Value| codec(f, "acodec").is_none();
   let tier = |f: &Value| match (s(f, "ext").as_deref(), n(f, "height")) {
     (Some("mp4"), Some(_)) => 0,
     (Some("mp4"), None) => 1,
@@ -96,7 +99,7 @@ pub fn pick_preview_url(raw: &[Value]) -> Option<String> {
   };
   let h = |f: &Value| nz(f, "height").unwrap_or(0.0);
   c.sort_by(|a, b| {
-    tier(a).cmp(&tier(b)).then_with(|| {
+    video_only(a).cmp(&video_only(b)).then(tier(a).cmp(&tier(b))).then_with(|| {
       if tier(a) == 0 {
         (h(a) - 480.0).abs().total_cmp(&(h(b) - 480.0).abs())
       } else {
@@ -180,7 +183,11 @@ mod tests {
     assert_eq!(m.best_video_format_id, "133");
     assert_eq!(m.best_audio_format_id, "140");
     assert_eq!(m.best_combined_format_id, "");
-    assert_eq!(m.preview_url, None);
+    // No progressive format here: the preview falls back to the video-only
+    // mp4 nearest 480p (240p 134; ties keep JSON order).
+    let raw: Value = serde_json::from_str(include_str!("../tests/fixtures/youtube.json")).unwrap();
+    let url_134 = raw["formats"].as_array().unwrap().iter().find(|f| f["format_id"] == "134").unwrap()["url"].clone();
+    assert_eq!(m.preview_url.as_deref(), url_134.as_str());
   }
 
   #[test]
@@ -239,6 +246,29 @@ mod tests {
     assert_eq!(pick_preview_url(&raw[..1]).as_deref(), Some("https://cdn/webm480"));
     assert_eq!(pick_preview_url(&[raw[0].clone(), raw[4].clone()]).as_deref(), Some("https://cdn/mp4-nohe"));
     assert_eq!(pick_preview_url(&raw[3..4]), None);
+  }
+
+  #[test]
+  fn preview_falls_back_to_video_only_when_no_combined() {
+    // YouTube without a JS runtime: no progressive format 18, only DASH.
+    let f = |id: &str, ext: &str, h: u32, vc: &str, ac: &str, proto: &str| {
+      serde_json::json!({"format_id": id, "ext": ext, "height": h, "vcodec": vc, "acodec": ac,
+        "protocol": proto, "url": format!("https://cdn/{id}")})
+    };
+    let dash = vec![
+      f("140", "m4a", 0, "none", "mp4a", "https"),
+      f("231", "mp4", 480, "avc1", "none", "m3u8_native"),
+      f("137", "mp4", 1080, "avc1", "none", "https"),
+      f("135", "mp4", 480, "avc1", "none", "https"),
+      f("244", "webm", 480, "vp9", "none", "https"),
+    ];
+    assert_eq!(pick_preview_url(&dash).as_deref(), Some("https://cdn/135"));
+    // A combined stream still wins over a closer-to-480p video-only one.
+    let mut both = dash.clone();
+    both.push(f("18", "mp4", 360, "avc1", "mp4a", "https"));
+    assert_eq!(pick_preview_url(&both).as_deref(), Some("https://cdn/18"));
+    // Audio-only alone gives nothing to look at.
+    assert_eq!(pick_preview_url(&dash[..1]), None);
   }
 
   #[test]
