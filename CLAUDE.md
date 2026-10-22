@@ -10,13 +10,14 @@
 - **共用 ffmpeg**：yt-dlp 合併分離的 video/audio 串流需要 ffmpeg，透過 `--ffmpeg-location` 指向 hub 打包的同一份 `ffmpeg` sidecar（Rust 端用 app exe 所在目錄 + `ffmpeg[.exe]` 算出完整路徑，跟 shell plugin 解析 sidecar 的位置一樣），Downloader 不需要（也不應該）自己再包一份。
 
 ## 核心規則：修改核心邏輯後的回歸檢查
-Tauri 版由 hub 的 `tests/e2e/downloader-*.test.mjs` 涵蓋 1–6（`npm run test:e2e -- downloader`，真的打 YouTube、真的跑 yt-dlp/ffmpeg sidecar）；`tests/test_download.js` 是 Neutralino 版，留著當參照。改 `download.rs`/`jobs.rs`/`useDownloader.js`/`DownloadPanel.jsx` 後要跑：
+Tauri 版由 hub 的 `tests/e2e/downloader-*.test.mjs` 涵蓋 1–7（`npm run test:e2e -- downloader`，真的打 YouTube、真的跑 yt-dlp/ffmpeg sidecar）；`tests/test_download.js` 是 Neutralino 版，留著當參照。改 `download.rs`/`jobs.rs`/`useDownloader.js`/`DownloadPanel.jsx` 後要跑：
 1. 貼一個真實影片網址，Fetch 後標題/縮圖/時長正確顯示；Video quality／Audio quality 兩個下拉選單分別列出乾淨的品質標籤（`1080p · mp4 · 45MB` 這種格式，不會看到 format_id 或 codec 名稱），且沒有 webm／mhtml storyboard／已合併格式混進來。
 2. 預設狀態：Include video／Include audio／Merge into single MP4 三個 checkbox 都是勾選的。
 3. 維持預設勾選、選好輸出資料夾後 Start Download：真的下載完成、進度條有更新、輸出資料夾裡只有一個 `.mp4` 檔案，且用 `ffmpeg -i` 確認同時有 Video 跟 Audio 串流（驗證 `--ffmpeg-location` 合併 + `--merge-output-format mp4` 真的接得上）。
 4. 取消勾選 Merge into single MP4（維持兩個 include 都勾），下載後應該產生**兩個**檔案，一個只有 video 串流、一個只有 audio 串流，檔名各自帶 format id 以便分辨。
 5. 取消勾選 Include video（只剩 audio）：Video quality 下拉跟 Merge checkbox 應該自動變成 disabled；此時嘗試取消勾選 Include audio 應該也被擋下（disabled，不能讓兩個都不勾）；下載應該只產生一個純 audio 檔案。
 6. Cancel 能正確中止下載，不留下殘留的 yt-dlp/ffmpeg process。
+7. ClipModal 選 2s–6s 存檔後下載：佇列 chip 顯示 `0:02–0:06`，輸出只有一個檔、ffmpeg 量長度在 4±1.5 秒內（`--force-keyframes-at-cuts` 決定精度）；下載中進度文字停在「Starting…」，不會出現 NaN（yt-dlp 把切割交給 ffmpeg 時百分比是 N/A，由 `parse_progress` 丟掉）。ClipModal 本身已不依賴 Neutralino（預覽直接播 `metadata.previewUrl`）。
 
 ## Commit 規範
 這個 repo 沒有自己的 semantic-release/CHANGELOG/GitHub Release——版本號、打包、發版全部由 `sorai-toolkit` 主 repo 負責。不需要 Conventional Commits 前綴，plain commit message 即可。
