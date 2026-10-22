@@ -53,8 +53,9 @@ pub fn progress_template() -> String {
 }
 
 /// argv for the yt-dlp sidecar (no shell: paths need no quoting).
-/// `ffmpeg` is the ffmpeg sidecar's path, for merging and clip cuts.
-pub fn download_args(job: &DownloadJob, ffmpeg: &str) -> Result<Vec<String>, String> {
+/// `ffmpeg` is the bundled ffmpeg's path, for merging and clip cuts (None:
+/// the host bundles none, yt-dlp looks on PATH itself).
+pub fn download_args(job: &DownloadJob, ffmpeg: Option<&str>) -> Result<Vec<String>, String> {
   let sel = format_selector(job);
   // An empty side ("137+") is as unusable as no selector at all.
   if sel.is_empty() || sel.starts_with(['+', ',']) || sel.ends_with(['+', ',']) {
@@ -63,7 +64,10 @@ pub fn download_args(job: &DownloadJob, ffmpeg: &str) -> Result<Vec<String>, Str
   if job.output_dir.is_empty() {
     return Err("no output folder".into());
   }
-  let mut a: Vec<String> = vec!["-f".into(), sel, "--no-playlist".into(), "--ffmpeg-location".into(), ffmpeg.into()];
+  let mut a: Vec<String> = vec!["-f".into(), sel, "--no-playlist".into()];
+  if let Some(ff) = ffmpeg {
+    a.extend(["--ffmpeg-location".into(), ff.into()]);
+  }
   // yt-dlp's own merge container depends on the sources and often lands on mkv.
   if job.both() && job.auto_merge {
     a.extend(["--merge-output-format".into(), "mp4".into()]);
@@ -145,7 +149,7 @@ mod tests {
 
   #[test]
   fn merge_args_point_at_ffmpeg_sidecar_and_force_mp4() {
-    let a = download_args(&split(true, true, true), FF).unwrap();
+    let a = download_args(&split(true, true, true), Some(FF)).unwrap();
     assert!(has(&a, &["-f", "133+140"]));
     assert!(has(&a, &["--ffmpeg-location", FF]));
     assert!(has(&a, &["--merge-output-format", "mp4"]));
@@ -157,8 +161,15 @@ mod tests {
   }
 
   #[test]
+  fn no_bundled_ffmpeg_leaves_yt_dlp_to_find_one_on_path() {
+    // A bare "ffmpeg" location doesn't exist as a path: yt-dlp would run without ffmpeg.
+    let a = download_args(&split(true, true, true), None).unwrap();
+    assert!(!a.contains(&"--ffmpeg-location".to_string()));
+  }
+
+  #[test]
   fn separate_files_get_format_id_in_filename_and_no_merge() {
-    let a = download_args(&split(true, true, false), FF).unwrap();
+    let a = download_args(&split(true, true, false), Some(FF)).unwrap();
     assert!(has(&a, &["-f", "133,140"]));
     assert!(has(&a, &["-o", "%(title)s [%(format_id)s].%(ext)s"]));
     assert!(!a.contains(&"--merge-output-format".to_string()));
@@ -168,7 +179,7 @@ mod tests {
   fn audio_only_and_combined_neither_merge_nor_rename() {
     let combined = DownloadJob { mode: "combined".into(), combined_format_id: "720p".into(), ..split(true, true, true) };
     for job in [split(false, true, true), combined] {
-      let a = download_args(&job, FF).unwrap();
+      let a = download_args(&job, Some(FF)).unwrap();
       assert!(!a.contains(&"--merge-output-format".to_string()));
       assert!(!a.contains(&"-o".to_string()));
     }
@@ -177,17 +188,17 @@ mod tests {
   #[test]
   fn clip_adds_sections_and_keyframes() {
     let job = DownloadJob { clip_start: Some(1.0), clip_end: Some(4.5), ..split(true, true, true) };
-    let a = download_args(&job, FF).unwrap();
+    let a = download_args(&job, Some(FF)).unwrap();
     assert!(has(&a, &["--download-sections", "*1.00-4.50", "--force-keyframes-at-cuts"]));
     let bad = DownloadJob { clip_start: Some(4.0), clip_end: Some(1.0), ..split(true, true, true) };
-    assert!(!download_args(&bad, FF).unwrap().contains(&"--download-sections".to_string()));
+    assert!(!download_args(&bad, Some(FF)).unwrap().contains(&"--download-sections".to_string()));
   }
 
   #[test]
   fn rejects_missing_selection_or_folder() {
-    assert!(download_args(&split(false, false, true), FF).is_err());
-    assert!(download_args(&DownloadJob { video_format_id: "".into(), ..split(true, true, true) }, FF).is_err());
-    assert!(download_args(&DownloadJob { output_dir: "".into(), ..split(true, true, true) }, FF).is_err());
+    assert!(download_args(&split(false, false, true), Some(FF)).is_err());
+    assert!(download_args(&DownloadJob { video_format_id: "".into(), ..split(true, true, true) }, Some(FF)).is_err());
+    assert!(download_args(&DownloadJob { output_dir: "".into(), ..split(true, true, true) }, Some(FF)).is_err());
   }
 
   #[test]

@@ -2,11 +2,10 @@ use tauri::{
   plugin::{Builder, TauriPlugin},
   AppHandle, Manager, Runtime,
 };
-use tauri_plugin_shell::ShellExt;
-
 pub mod download;
 mod jobs;
 pub mod metadata;
+pub mod sidecar;
 
 /// Plugin name: JS calls commands as `plugin:sorai-downloader|<command>`,
 /// the hub grants `sorai-downloader:default`.
@@ -26,10 +25,7 @@ fn ping(value: String) -> String {
 /// show it. Host contract: a `yt-dlp` sidecar + the shell plugin registered.
 #[tauri::command]
 async fn fetch_metadata<R: Runtime>(app: AppHandle<R>, url: String) -> Result<metadata::Metadata, String> {
-  let out = app
-    .shell()
-    .sidecar("yt-dlp")
-    .map_err(|e| e.to_string())?
+  let out = sidecar::command(&app, "yt-dlp")
     .args(metadata::metadata_args(&url))
     .output()
     .await

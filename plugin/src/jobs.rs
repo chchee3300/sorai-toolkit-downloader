@@ -4,7 +4,6 @@
 
 use std::{
   collections::HashMap,
-  path::PathBuf,
   sync::{
     atomic::{AtomicU32, Ordering},
     Mutex,
@@ -14,10 +13,7 @@ use std::{
 
 use serde::Serialize;
 use tauri::{ipc::Channel, AppHandle, Manager, Runtime};
-use tauri_plugin_shell::{
-  process::{CommandChild, CommandEvent},
-  ShellExt,
-};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 
 use crate::download::{self, DownloadJob};
 
@@ -55,19 +51,10 @@ fn take<R: Runtime>(app: &AppHandle<R>, id: u32) -> Option<Job> {
   app.state::<Jobs>().map.lock().unwrap().remove(&id)
 }
 
-/// Same place tauri-plugin-shell resolves sidecars: next to the app exe.
-fn sidecar_path(name: &str) -> Result<PathBuf, String> {
-  let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-  let dir = exe.parent().ok_or("app exe has no parent dir")?;
-  Ok(dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)))
-}
-
 pub fn start<R: Runtime>(app: &AppHandle<R>, job: &DownloadJob, channel: Channel<JobEvent>) -> Result<u32, String> {
-  let args = download::download_args(job, &sidecar_path("ffmpeg")?.to_string_lossy())?;
-  let (mut rx, child) = app
-    .shell()
-    .sidecar("yt-dlp")
-    .map_err(|e| e.to_string())?
+  let ffmpeg = crate::sidecar::bundled(app, "ffmpeg").map(|p| p.to_string_lossy().into_owned());
+  let args = download::download_args(job, ffmpeg.as_deref())?;
+  let (mut rx, child) = crate::sidecar::command(app, "yt-dlp")
     .args(args)
     // Titles/paths in log and ERROR lines come out as UTF-8, not the console codepage.
     .env("PYTHONIOENCODING", "utf-8")
